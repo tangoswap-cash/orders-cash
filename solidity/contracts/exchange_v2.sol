@@ -17,8 +17,8 @@ contract ExchangeV2 {
 	bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 takerAddr_dueTime64)"));
 	uint256 private constant MUL = 10**9;
 
-	mapping(address => uint64[1<<32]) makerRecentDueTimeList;
-	mapping(address => uint) makerRecentDueTimeCount;
+	mapping(address => uint64[1<<32]) public makerRecentDueTimeList;
+	mapping(address => uint) public makerRDTStartEnd;
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker,
 			       uint256 takerAddr_dueTime64
@@ -54,22 +54,34 @@ contract ExchangeV2 {
 		makerRecentDueTimeList[msg.sender][index] = 0;
 	}
 
-	function clearOldDueTimesAndInsertNew(address makerAddr, uint64 newDueTime, uint currTime) private {
-		uint count = makerRecentDueTimeCount[makerAddr];
+	function getRecentDueTimes(address makerAddr) external view returns (uint[] memory recentDueTimes) {
 		uint64[1<<32] storage recentDueTimeList = makerRecentDueTimeList[makerAddr];
-		while(count != 0) {
-			if(recentDueTimeList[count-1] < currTime) {
-				recentDueTimeList[count-1] = 0;
-				count--;
-			} else {
-				break;
+		uint startEnd = makerRDTStartEnd[makerAddr];
+		uint start = uint(uint32(startEnd>>32));
+		uint end = uint(uint32(startEnd));
+		recentDueTimes = new uint[](end-start);
+		for(uint i=start; i<end; i++) {
+			recentDueTimes[i-start] = recentDueTimeList[i];
+		}
+	}
+
+	function clearOldDueTimesAndInsertNew(address makerAddr, uint64 newDueTime, uint currTime) private {
+		uint64[1<<32] storage recentDueTimeList = makerRecentDueTimeList[makerAddr];
+		uint startEnd = makerRDTStartEnd[makerAddr];
+		uint start = uint(uint32(startEnd>>32));
+		uint end = uint(uint32(startEnd));
+		uint newStart = end;
+		for(uint i=start; i<end; i++) {
+			uint dueTime = recentDueTimeList[i];
+			require(dueTime != newDueTime, "cannot replay old order"); //check replay
+			if(dueTime < currTime) {
+				recentDueTimeList[start] = 0; //clear old useless records
+			} else if(newStart==end) {
+				newStart = i; //update start
 			}
 		}
-		for(uint i=0; i<count; i++) {
-			require(recentDueTimeList[i] != newDueTime, "cannot replay old order");
-		}
-		recentDueTimeList[count] = newDueTime;
-		makerRecentDueTimeCount[makerAddr] = count + 1;
+		recentDueTimeList[end] = newDueTime;
+		makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end+1));
 	}
 
 	function exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
