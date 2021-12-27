@@ -50,10 +50,6 @@ contract ExchangeV2 {
 		return ecrecover(eip712Hash, v, r, s);
 	}
 
-	function clearDueTime(uint index) external {
-		makerRecentDueTimeList[msg.sender][index] = 0;
-	}
-
 	function getRecentDueTimes(address makerAddr) external view returns (uint[] memory recentDueTimes) {
 		uint64[1<<32] storage recentDueTimeList = makerRecentDueTimeList[makerAddr];
 		uint startEnd = makerRDTStartEnd[makerAddr];
@@ -63,6 +59,11 @@ contract ExchangeV2 {
 		for(uint i=start; i<end; i++) {
 			recentDueTimes[i-start] = recentDueTimeList[i];
 		}
+	}
+
+	function addNewDueTime(uint64 newDueTime) external {
+		uint currTime = block.timestamp*MUL;
+		clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
 	}
 
 	function clearOldDueTimesAndInsertNew(address makerAddr, uint64 newDueTime, uint currTime) private {
@@ -75,7 +76,7 @@ contract ExchangeV2 {
 			uint dueTime = recentDueTimeList[i];
 			require(dueTime != newDueTime, "cannot replay old order"); //check replay
 			if(dueTime < currTime) {
-				recentDueTimeList[start] = 0; //clear old useless records
+				recentDueTimeList[i] = 0; //clear old useless records
 			} else if(newStart==end) {
 				newStart = i; //update start
 			}
@@ -89,7 +90,7 @@ contract ExchangeV2 {
 		address makerAddr = getMaker(coinsToMaker, coinsToMaker,
 					     takerAddr_dueTime64_v8,
 					     r, s);
-		uint64 dueTime = uint64(takerAddr_dueTime64_v8>>24);
+		uint64 dueTime = uint64(takerAddr_dueTime64_v8>>8);
 		uint currTime = block.timestamp*MUL;
 		require(currTime < dueTime, "too late");
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
