@@ -101,14 +101,18 @@ contract ExchangeV2 {
 		uint coinAmountToMaker = uint(uint96(coinsToMaker));
 		address coinTypeToTaker = address(bytes20(uint160(coinsToTaker>>96)));
 		uint coinAmountToTaker = uint(uint96(coinsToTaker));
-		if(coinTypeToMaker == BCHAddress) {
-			require(msg.value == coinAmountToMaker, "bch not enough");
-			IERC20(coinTypeToMaker).transfer(makerAddr, coinAmountToMaker);
-		} else {
-			require(msg.value == 0, "no need for bch");
-			IERC20(coinTypeToMaker).transferFrom(msg.sender, makerAddr, coinAmountToMaker);
+		if(coinAmountToMaker != 0) {
+			if(coinTypeToMaker == BCHAddress) {
+				require(msg.value == coinAmountToMaker, "bch not enough");
+				IERC20(coinTypeToMaker).transfer(makerAddr, coinAmountToMaker);
+			} else {
+				require(msg.value == 0, "no need for bch");
+				IERC20(coinTypeToMaker).transferFrom(msg.sender, makerAddr, coinAmountToMaker);
+			}
 		}
-		IERC20(coinTypeToTaker).transferFrom(makerAddr, msg.sender, coinAmountToTaker);
+		if(coinAmountToTaker != 0) {
+			IERC20(coinTypeToTaker).transferFrom(makerAddr, msg.sender, coinAmountToTaker);
+		}
 	}
 }
 
