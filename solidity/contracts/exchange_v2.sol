@@ -89,7 +89,7 @@ contract ExchangeV2 {
 
 	function exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
 			  bytes32 r, bytes32 s) payable external {
-		address makerAddr = getMaker(coinsToMaker, coinsToMaker,
+		address makerAddr = getMaker(coinsToMaker, coinsToTaker,
 					     takerAddr_dueTime64_v8,
 					     r, s);
 		uint64 dueTime = uint64(takerAddr_dueTime64_v8>>8);

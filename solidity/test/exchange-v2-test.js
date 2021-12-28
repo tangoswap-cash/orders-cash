@@ -12,8 +12,8 @@ describe("ExchangeV2", function () {
     const [acc0] = await ethers.getSigners();
     maker = new ethers.Wallet('82c149d8f7257a6ab690d351d482de51e3540a95859a72a96ef5d744e1f69d60', acc0.provider);
     taker = new ethers.Wallet('f37a49a536c941829424a502bb4579f2ab5451c7104c8541e7797798f3daf4ec', acc0.provider);
-    // console.log('maker:', maker.address);
-    // console.log('taker:', taker.address);
+    console.log('maker:', maker.address);
+    console.log('taker:', taker.address);
     await acc0.sendTransaction({to: maker.address, value: ethers.utils.parseEther("1.0")});
     await acc0.sendTransaction({to: taker.address, value: ethers.utils.parseEther("1.0")});
 
@@ -31,9 +31,9 @@ describe("ExchangeV2", function () {
 
   it("getEIP712Hash", async function () {
     const msg = {
-      coinsToMaker: bnToHex(BigInt(wBCH.address) << 96n | 0x123n),
-      coinsToTaker: bnToHex(BigInt(fUSD.address) << 96n | 0x456n),
-      takerAddr_dueTime64: bnToHex(BigInt(taker.address) << 64n | 0x789n),
+      coinsToMaker: concatAddressUint96(wBCH.address, 0x123),
+      coinsToTaker: concatAddressUint96(fUSD.address, 0x456),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, 0x789),
     }
     // console.log(msg);
 
@@ -46,9 +46,9 @@ describe("ExchangeV2", function () {
 
   it("getMaker", async function () {
     const msg = {
-      coinsToMaker: bnToHex(BigInt(wBCH.address) << 96n | 0x123n),
-      coinsToTaker: bnToHex(BigInt(fUSD.address) << 96n | 0x456n),
-      takerAddr_dueTime64: bnToHex(BigInt(taker.address) << 64n | 0x789n),
+      coinsToMaker: concatAddressUint96(wBCH.address, 0x123),
+      coinsToTaker: concatAddressUint96(fUSD.address, 0x456),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, 0x789),
     }
 
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
@@ -64,23 +64,26 @@ describe("ExchangeV2", function () {
     expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(10));
     expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(5000));
 
-    // const payerAllowance = 0x123456;
-    // const payAmount = 0x9876;
-    // await myToken.transfer(payer.address, payAmount + 1);
-    // await myToken.connect(payer).approve(stochasticPay.address, payerAllowance);
-
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
     const msg = {
-      coinsToMaker: bnToHex(BigInt(fUSD.address) << 96n | 500n),
-      coinsToTaker: bnToHex(BigInt(wBCH.address) << 96n | 1n),
-      takerAddr_dueTime64: bnToHex(BigInt(taker.address) << 64n | 0x789n),
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(500)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(1)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
     }
 
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     // console.log('rsv:', r, s, v);
-    await exch(exchange, msg, r, s, v);
 
-    // expect(await myToken.balanceOf(payer.address)).to.equal(1);
-    // expect(await myToken.balanceOf(payee.address)).to.equal(payAmount);
+    await wBCH.connect(maker).approve(exchange.address, _1e18(999));
+    await fUSD.connect(taker).approve(exchange.address, _1e18(999));
+    await expect(exch(exchange.connect(taker), msg, r, s, v))
+        .to.emit(exchange, 'Exchange')
+        .withArgs(maker.address, msg.coinsToMaker, msg.coinsToTaker, msg.takerAddr_dueTime64);
+
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await wBCH.balanceOf(taker.address)).to.equal(_1e18(1));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+    expect(await fUSD.balanceOf(maker.address)).to.equal(_1e18(500));
   });
 
 });
@@ -161,9 +164,15 @@ function getTypedData(verifyingContractAddr, msg) {
   };
 }
 
-function _1e18(n) {
-  return (BigInt(n) * (10n ** 18n)).toString();
+function concatAddressUint96(addr, n) {
+  return bnToHex(BigInt(addr) << 96n | BigInt(n));
+}
+function concatAddressUint64(addr, n) {
+  return bnToHex(BigInt(addr) << 64n | BigInt(n));
 }
 function bnToHex(n) {
   return '0x' + n.toString(16);
+}
+function _1e18(n) {
+  return (BigInt(n) * (10n ** 18n)).toString();
 }
