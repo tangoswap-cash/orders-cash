@@ -19,6 +19,8 @@ contract ExchangeV2 {
 
 	mapping(address => uint64[1<<32]) public makerRecentDueTimeList;
 	mapping(address => uint) public makerRDTStartEnd;
+	
+	event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64);
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker,
 			       uint256 takerAddr_dueTime64
@@ -113,6 +115,7 @@ contract ExchangeV2 {
 		if(coinAmountToTaker != 0) {
 			IERC20(coinTypeToTaker).transferFrom(makerAddr, msg.sender, coinAmountToTaker);
 		}
+		emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8>>8);
 	}
 }
 
