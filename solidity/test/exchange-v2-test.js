@@ -2,14 +2,23 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { TypedDataUtils } = require('ethers-eip712');
 
+const bchAddr = '0x0000000000000000000000000000000000002711';
+const erc20ABI = [
+  `function balanceOf(address owner) external view returns (uint)`,
+  `function allowance(address owner, address spender) external view returns (uint)`,
+  `function approve(address spender, uint value) external returns (bool)`
+]
+
 describe("ExchangeV2", function () {
 
   let maker, taker;
   let exchange;
   let wBCH, fUSD;
+  let bch;
 
   before(async function () {
     const [acc0] = await ethers.getSigners();
+    bch = new ethers.Contract(bchAddr, erc20ABI, acc0.provider);
     maker = new ethers.Wallet('82c149d8f7257a6ab690d351d482de51e3540a95859a72a96ef5d744e1f69d60', acc0.provider);
     taker = new ethers.Wallet('f37a49a536c941829424a502bb4579f2ab5451c7104c8541e7797798f3daf4ec', acc0.provider);
     // console.log('maker:', maker.address);
@@ -178,6 +187,46 @@ describe("ExchangeV2", function () {
         .to.be.revertedWith('ERC20: transfer amount exceeds allowance');
   });
 
+  it("exchange:bch-to-taker", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(500)),
+      coinsToTaker: concatAddressUint96(bchAddr, _1e18(1)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+    console.log(msg);
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    // console.log('rsv:', r, s, v);
+
+    await bch.connect(maker).approve(exchange.address, _1e18(1));
+    await fUSD.connect(taker).approve(exchange.address, _1e18(500));
+    // await exch(exchange.connect(taker), msg, r, s, v); // TODO
+  });
+
+  it("exchange:bch-to-maker", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(bchAddr, _1e18(1)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(1)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+    console.log(msg);
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    // console.log('rsv:', r, s, v);
+
+    // await bch.connect(maker).approve(exchange.address, _1e18(1));
+    // await fUSD.connect(taker).approve(exchange.address, _1e18(500));
+    // await exch(exchange.connect(taker), msg, r, s, v, _1e18(1)); // TODO
+  });
+
 });
 
 function getEIP712HashSol(exchange, msg) {
@@ -195,12 +244,13 @@ function getMaker(exchange, msg, r, s, v) {
     r, s,
   );
 }
-function exch(exchange, msg, r, s, v) {
+function exch(exchange, msg, r, s, v, bch) {
   return exchange.exchange(
     msg.coinsToMaker,
     msg.coinsToTaker,
     bnToHex(BigInt(msg.takerAddr_dueTime64) << 8n | BigInt(v)),
     r, s,
+    {value: bch || 0}
   );
 }
 
