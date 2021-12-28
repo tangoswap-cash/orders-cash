@@ -12,10 +12,10 @@ describe("ExchangeV2", function () {
     const [acc0] = await ethers.getSigners();
     maker = new ethers.Wallet('82c149d8f7257a6ab690d351d482de51e3540a95859a72a96ef5d744e1f69d60', acc0.provider);
     taker = new ethers.Wallet('f37a49a536c941829424a502bb4579f2ab5451c7104c8541e7797798f3daf4ec', acc0.provider);
-    console.log('maker:', maker.address);
-    console.log('taker:', taker.address);
-    await acc0.sendTransaction({to: maker.address, value: ethers.utils.parseEther("1.0")});
-    await acc0.sendTransaction({to: taker.address, value: ethers.utils.parseEther("1.0")});
+    // console.log('maker:', maker.address);
+    // console.log('taker:', taker.address);
+    await acc0.sendTransaction({to: maker.address, value: ethers.utils.parseEther("10.0")});
+    await acc0.sendTransaction({to: taker.address, value: ethers.utils.parseEther("10.0")});
 
     const Exchange = await ethers.getContractFactory("ExchangeV2");
     exchange = await Exchange.deploy();
@@ -74,8 +74,8 @@ describe("ExchangeV2", function () {
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     // console.log('rsv:', r, s, v);
 
-    await wBCH.connect(maker).approve(exchange.address, _1e18(999));
-    await fUSD.connect(taker).approve(exchange.address, _1e18(999));
+    await wBCH.connect(maker).approve(exchange.address, _1e18(1));
+    await fUSD.connect(taker).approve(exchange.address, _1e18(500));
     await expect(exch(exchange.connect(taker), msg, r, s, v))
         .to.emit(exchange, 'Exchange')
         .withArgs(maker.address, msg.coinsToMaker, msg.coinsToTaker, msg.takerAddr_dueTime64);
@@ -84,6 +84,98 @@ describe("ExchangeV2", function () {
     expect(await wBCH.balanceOf(taker.address)).to.equal(_1e18(1));
     expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
     expect(await fUSD.balanceOf(maker.address)).to.equal(_1e18(500));
+  });
+
+  it("exchange:out-of-date", async function () {
+    const dueTime = (Date.now() - 1) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(500)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(1)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    await expect(exch(exchange.connect(taker), msg, r, s, v))
+        .to.be.revertedWith('too late');
+  });
+
+  it("exchange:wrong-taker", async function () {
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(500)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(1)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    await expect(exch(exchange.connect(maker), msg, r, s, v))
+        .to.be.revertedWith('taker mismatch');
+  });
+
+  it("exchange:erc20-taker-amt-not-enough", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(5000)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(10)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    await expect(exch(exchange.connect(taker), msg, r, s, v))
+        .to.be.revertedWith('ERC20: transfer amount exceeds balance');
+  });
+
+  it("exchange:erc20-taker-allowance-not-enough", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(4500)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(10)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    await expect(exch(exchange.connect(taker), msg, r, s, v))
+        .to.be.revertedWith('ERC20: transfer amount exceeds allowance');
+  });
+
+  it("exchange:erc20-maker-amt-not-enough", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(4500)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(10)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+
+    await fUSD.connect(taker).approve(exchange.address, _1e18(4500));
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    await expect(exch(exchange.connect(taker), msg, r, s, v))
+        .to.be.revertedWith('ERC20: transfer amount exceeds balance');
+  });
+
+  it("exchange:erc20-maker-allowance-not-enough", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(4500)),
+      coinsToTaker: concatAddressUint96(wBCH.address, _1e18(8)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+
+    await fUSD.connect(taker).approve(exchange.address, _1e18(4500));
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    await expect(exch(exchange.connect(taker), msg, r, s, v))
+        .to.be.revertedWith('ERC20: transfer amount exceeds allowance');
   });
 
 });
