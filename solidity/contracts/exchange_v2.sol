@@ -108,7 +108,7 @@ contract ExchangeV2 {
 			(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
 				abi.encodeWithSignature("transferFrom(address,address,uint256)", 
 				makerAddr, msg.sender, coinAmountToTaker));
-			require(success, "SEP206_TRANSFER_FAIL");				
+			require(success, "transferFrom fail");				
 		}
 		if(coinAmountToMaker != 0) {
 			if(coinTypeToMaker == BCHAddress) {
