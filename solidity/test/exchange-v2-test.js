@@ -134,7 +134,7 @@ describe("ExchangeV2", function () {
 
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     await expect(exch(exchange.connect(taker), msg, r, s, v))
-        .to.be.revertedWith('ERC20: transfer amount exceeds balance');
+        .to.be.revertedWith('transferFrom fail');
   });
 
   it("exchange:erc20-taker-allowance-not-enough", async function () {
@@ -150,7 +150,7 @@ describe("ExchangeV2", function () {
 
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     await expect(exch(exchange.connect(taker), msg, r, s, v))
-        .to.be.revertedWith('ERC20: transfer amount exceeds allowance');
+        .to.be.revertedWith('transferFrom fail');
   });
 
   it("exchange:erc20-maker-amt-not-enough", async function () {
@@ -167,7 +167,7 @@ describe("ExchangeV2", function () {
     await fUSD.connect(taker).approve(exchange.address, _1e18(4500));
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     await expect(exch(exchange.connect(taker), msg, r, s, v))
-        .to.be.revertedWith('ERC20: transfer amount exceeds balance');
+        .to.be.revertedWith('transferFrom fail');
   });
 
   it("exchange:erc20-maker-allowance-not-enough", async function () {
@@ -184,32 +184,12 @@ describe("ExchangeV2", function () {
     await fUSD.connect(taker).approve(exchange.address, _1e18(4500));
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     await expect(exch(exchange.connect(taker), msg, r, s, v))
-        .to.be.revertedWith('ERC20: transfer amount exceeds allowance');
-  });
-
-  it("exchange:bch-to-taker", async function () {
-    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
-    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
-
-    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
-    const msg = {
-      coinsToMaker: concatAddressUint96(fUSD.address, _1e18(500)),
-      coinsToTaker: concatAddressUint96(bchAddr, _1e18(1)),
-      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
-    }
-    console.log(msg);
-
-    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
-    // console.log('rsv:', r, s, v);
-
-    await bch.connect(maker).approve(exchange.address, _1e18(1));
-    await fUSD.connect(taker).approve(exchange.address, _1e18(500));
-    // await exch(exchange.connect(taker), msg, r, s, v); // TODO
+        .to.be.revertedWith('transferFrom fail');
   });
 
   it("exchange:bch-to-maker", async function () {
     expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
-    expect(await fUSD.balanceOf(taker.address)).to.equal(_1e18(4500));
+    expect(await wBCH.balanceOf(taker.address)).to.equal(_1e18(1));
 
     const dueTime = (Date.now() + 3600 * 1000) * 10**6;
     const msg = {
@@ -217,14 +197,46 @@ describe("ExchangeV2", function () {
       coinsToTaker: concatAddressUint96(wBCH.address, _1e18(1)),
       takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
     }
-    console.log(msg);
+    // console.log(msg);
+
+    const [r, s, v] = signRawMsg(exchange.address, msg, maker);
+    // console.log('rsv:', r, s, v);
+    await wBCH.connect(maker).approve(exchange.address, _1e18(1));
+
+    const makerBalance0 = await ethers.provider.getBalance(maker.address);
+    await exch(exchange.connect(taker), msg, r, s, v, _1e18(1)); // TODO
+    const makerBalance1 = await ethers.provider.getBalance(maker.address);
+
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(8));
+    expect(await wBCH.balanceOf(taker.address)).to.equal(_1e18(2));
+    expect(makerBalance1.sub(makerBalance0)).to.equal(_1e18(1));
+  });
+
+  it("exchange:bch-to-taker", async function () {
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(8));
+    expect(await wBCH.balanceOf(taker.address)).to.equal(_1e18(2));
+
+    const dueTime = (Date.now() + 3600 * 1000) * 10**6;
+    const msg = {
+      coinsToMaker: concatAddressUint96(wBCH.address, _1e18(1)),
+      coinsToTaker: concatAddressUint96(bchAddr, _1e18(1)),
+      takerAddr_dueTime64: concatAddressUint64(taker.address, dueTime),
+    }
+    // console.log(msg);
 
     const [r, s, v] = signRawMsg(exchange.address, msg, maker);
     // console.log('rsv:', r, s, v);
 
-    // await bch.connect(maker).approve(exchange.address, _1e18(1));
-    // await fUSD.connect(taker).approve(exchange.address, _1e18(500));
-    // await exch(exchange.connect(taker), msg, r, s, v, _1e18(1)); // TODO
+    await bch.connect(maker).approve(exchange.address, _1e18(1));
+    await wBCH.connect(taker).approve(exchange.address, _1e18(1));
+
+    const takerBalance0 = await ethers.provider.getBalance(taker.address);
+    await exch(exchange.connect(taker), msg, r, s, v);
+    const takerBalance1 = await ethers.provider.getBalance(taker.address);
+
+    expect(await wBCH.balanceOf(maker.address)).to.equal(_1e18(9));
+    expect(await wBCH.balanceOf(taker.address)).to.equal(_1e18(1));
+    expect(takerBalance1.sub(takerBalance0)).to.equal(_1e18(1)); // TODO
   });
 
 });

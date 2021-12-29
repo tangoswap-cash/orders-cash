@@ -18,4 +18,12 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
  */
 module.exports = {
   solidity: "0.8.10",
+  networks: {
+    sbch_local_node: {
+      url: `http://localhost:8545`,
+      network_id: 10000,
+      gasPrice: 10000000000,
+      timeout: 100000
+    },
+  },
 };
