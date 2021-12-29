@@ -105,7 +105,6 @@ contract ExchangeV2 {
 		uint coinAmountToTaker = uint(uint96(coinsToTaker));
 		emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8>>8);
 		if(coinAmountToTaker != 0) {
-			IERC20(coinTypeToTaker).transferFrom(makerAddr, msg.sender, coinAmountToTaker);
 			(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
 				abi.encodeWithSignature("transferFrom(address,address,uint256)", 
 				makerAddr, msg.sender, coinAmountToTaker));
