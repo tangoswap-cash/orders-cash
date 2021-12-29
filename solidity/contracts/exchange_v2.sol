@@ -103,19 +103,23 @@ contract ExchangeV2 {
 		uint coinAmountToMaker = uint(uint96(coinsToMaker));
 		address coinTypeToTaker = address(bytes20(uint160(coinsToTaker>>96)));
 		uint coinAmountToTaker = uint(uint96(coinsToTaker));
+		emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8>>8);
+		if(coinAmountToTaker != 0) {
+			IERC20(coinTypeToTaker).transferFrom(makerAddr, msg.sender, coinAmountToTaker);
+			(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
+				abi.encodeWithSignature("transferFrom(address,address,uint256)", 
+				makerAddr, msg.sender, coinAmountToTaker));
+			require(success, "SEP206_TRANSFER_FAIL");				
+		}
 		if(coinAmountToMaker != 0) {
 			if(coinTypeToMaker == BCHAddress) {
 				require(msg.value == coinAmountToMaker, "bch not enough");
-				IERC20(coinTypeToMaker).transfer(makerAddr, coinAmountToMaker);
+				makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
 			} else {
 				require(msg.value == 0, "no need for bch");
 				IERC20(coinTypeToMaker).transferFrom(msg.sender, makerAddr, coinAmountToMaker);
 			}
 		}
-		if(coinAmountToTaker != 0) {
-			IERC20(coinTypeToTaker).transferFrom(makerAddr, msg.sender, coinAmountToTaker);
-		}
-		emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8>>8);
 	}
 }
 
