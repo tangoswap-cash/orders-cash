@@ -23,6 +23,7 @@ contract ExchangeHub {
 	bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 campaignID,uint256 takerAddr_dueTime64)"));
 	uint256 private constant MUL = 10**9;
 
+	mapping(address => address) public makerToAgent;
 	mapping(address => uint64[1<<32]) public makerRecentDueTimeList;
 	mapping(address => uint) public makerRDTStartEnd;
 	
@@ -97,11 +98,30 @@ contract ExchangeHub {
 		makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end+1));
 	}
 
+	function setMakerAgent(address agent) external {
+		makerToAgent[msg.sender] = agent;
+	}
+
+	function exchangeWithAgentSig(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
+			              address makerAddr, bytes32 r, bytes32 s) payable external {
+		_exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8, makerAddr, r, s);
+	}
+
 	function exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
-			  bytes32 r, bytes32 s) payable external {
-		address makerAddr = getMaker(coinsToMaker, coinsToTaker, 0,
-					     takerAddr_dueTime64_v8,
-					     r, s);
+			   bytes32 r, bytes32 s) payable external {
+		_exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8, address(0), r, s);
+	}
+
+	function _exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
+			   address makerAddr, bytes32 r, bytes32 s) private {
+		if(makerAddr == address(0)) {				 
+			makerAddr = getMaker(coinsToMaker, coinsToTaker, uint(uint160(0)),
+					     takerAddr_dueTime64_v8, r, s);
+		} else {
+			address agentAddr = getMaker(coinsToMaker, coinsToTaker, uint(uint160(makerAddr)),
+					     takerAddr_dueTime64_v8, r, s);
+			require(makerToAgent[makerAddr] == agentAddr, "invalid agent");
+		}
 		uint64 dueTime = uint64(takerAddr_dueTime64_v8>>8);
 		uint currTime = block.timestamp*MUL;
 		require(currTime < dueTime, "too late");
