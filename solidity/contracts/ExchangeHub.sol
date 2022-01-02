@@ -14,14 +14,14 @@ contract ExchangeHub {
 	}
 
 	address constant private BCHAddress = 0x0000000000000000000000000000000000002711;
-	bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
-	uint256 private constant CHAINID = 10000; // smartBCH mainnet
 	string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
 	bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
-	bytes32 private constant DAPP_HASH = keccak256(abi.encodePacked("exchange dapp"));
+	bytes32 private constant NAME_HASH = keccak256(abi.encodePacked("exchange dapp"));
 	bytes32 private constant VERSION_HASH = keccak256(abi.encodePacked("v0.1.0"));
+	uint256 private constant CHAINID = 10000; // smartBCH mainnet
+	bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
 	bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 campaignID,uint256 takerAddr_dueTime64)"));
-	uint256 private constant MUL = 10**9;
+	uint256 private constant MUL = 10**9; // number of nanoseconds in one second
 
 	mapping(address => address) public makerToAgent;
 	mapping(address => uint64[1<<32]) public makerRecentDueTimeList;
@@ -34,10 +34,10 @@ contract ExchangeHub {
 	event Donate(uint256 indexed campaignID, Donation donation);
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
-			       uint256 takerAddr_dueTime64) public view returns (bytes32) {
+			       uint256 takerAddr_dueTime64) private view returns (bytes32) {
 		bytes32 DOMAIN_SEPARATOR = keccak256(abi.encode(
 						     EIP712_DOMAIN_TYPEHASH,
-						     DAPP_HASH,
+						     NAME_HASH,
 						     VERSION_HASH,
 						     CHAINID,
 						     address(this),
@@ -55,8 +55,8 @@ contract ExchangeHub {
 		));
 	}
 
-	function getMaker(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
-			  uint256 takerAddr_dueTime64_v8, bytes32 r, bytes32 s) public view returns (address) {
+	function getSigner(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
+			  uint256 takerAddr_dueTime64_v8, bytes32 r, bytes32 s) private view returns (address) {
 		bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, campaignID,
 						   takerAddr_dueTime64_v8>>8);
 		uint8 v = uint8(takerAddr_dueTime64_v8); //the lowest byte is v
@@ -79,6 +79,11 @@ contract ExchangeHub {
 		clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
 	}
 
+	function clearOldDueTimes(address makerAddr) external {
+		uint currTime = block.timestamp*MUL;
+		clearOldDueTimesAndInsertNew(makerAddr, 0, currTime);
+	}
+
 	function clearOldDueTimesAndInsertNew(address makerAddr, uint64 newDueTime, uint currTime) private {
 		uint64[1<<32] storage recentDueTimeList = makerRecentDueTimeList[makerAddr];
 		uint startEnd = makerRDTStartEnd[makerAddr];
@@ -90,12 +95,16 @@ contract ExchangeHub {
 			require(dueTime != newDueTime, "cannot replay old order"); //check replay
 			if(dueTime < currTime) {
 				recentDueTimeList[i] = 0; //clear old useless records
-			} else if(newStart==end) {
+			} else if(newStart==end) { // not updated yet in this loop
 				newStart = i; //update start
 			}
 		}
-		recentDueTimeList[end] = newDueTime;
-		makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end+1));
+		if(newDueTime == 0) { //keep old value of end
+			makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end));
+		} else { //insert newDueTime at end
+			recentDueTimeList[end] = newDueTime;
+			makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end+1));
+		}
 	}
 
 	function setMakerAgent(address agent) external {
@@ -115,10 +124,10 @@ contract ExchangeHub {
 	function _exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
 			   address makerAddr, bytes32 r, bytes32 s) private {
 		if(makerAddr == address(0)) {				 
-			makerAddr = getMaker(coinsToMaker, coinsToTaker, uint(uint160(0)),
+			makerAddr = getSigner(coinsToMaker, coinsToTaker, uint(uint160(0)),
 					     takerAddr_dueTime64_v8, r, s);
 		} else {
-			address agentAddr = getMaker(coinsToMaker, coinsToTaker, uint(uint160(makerAddr)),
+			address agentAddr = getSigner(coinsToMaker, coinsToTaker, uint(uint160(makerAddr)),
 					     takerAddr_dueTime64_v8, r, s);
 			require(makerToAgent[makerAddr] == agentAddr, "invalid agent");
 		}
@@ -154,20 +163,18 @@ contract ExchangeHub {
 
 	function handleDonation(Donation calldata donation, uint currTime, address coinTypeToTaker, uint campaignID,
 			       address takerAddr) private returns (uint) {
-		uint takerAddr_dueTime64_v8;
-		uint coinAmountToTaker;
 		uint64 dueTime = uint64(donation.amount_dueTime64_v8>>8);
 		require(currTime < dueTime, "too late");
+		uint coinAmountToTaker;
+		uint takerAddr_dueTime64_v8;
 		{
 			uint amount = donation.amount_dueTime64_v8>>72;
 			coinAmountToTaker = (uint(uint160(coinTypeToTaker))<<96) + amount;
 			uint dueTime64_v8 = uint72(donation.amount_dueTime64_v8);
 			takerAddr_dueTime64_v8 = (uint(uint160(takerAddr))<<72) + dueTime64_v8;
 		}
-		address makerAddr = getMaker(0/*zero coinsToMaker*/, coinAmountToTaker, campaignID,
-					     takerAddr_dueTime64_v8, 
-					     donation.r,
-					     donation.s);
+		address makerAddr = getSigner(0/*zero coinsToMaker*/, coinAmountToTaker, campaignID,
+					      takerAddr_dueTime64_v8, donation.r, donation.s);
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
 
 		(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
@@ -181,7 +188,8 @@ contract ExchangeHub {
 			   Donation[] calldata donations) external {
 		uint currTime = block.timestamp*MUL;
 		address coinTypeToTaker = address(uint160(totalCoinsToTaker>>96));
-		uint campaignID = uint(keccak256(abi.encodePacked(takerAddr_startTime64, totalCoinsToTaker, introHash)));
+		uint campaignID = uint(keccak256(abi.encodePacked(
+			takerAddr_startTime64, totalCoinsToTaker, introHash)));
 		address takerAddr = address(uint160(takerAddr_startTime64>>64));
 		uint sumAmount = 0;
 		for(uint i=0; i<donations.length; i++) {
@@ -193,11 +201,11 @@ contract ExchangeHub {
 	}
 
 	function startCampaign(uint totalCoinsToTaker, bytes calldata intro) external {
-		address takerAddr = address(uint160(totalCoinsToTaker>>96));
-		uint takerAddr_startTime64 = (uint(uint160(takerAddr))<<64) + block.timestamp;
+		uint takerAddr_startTime64 = (uint(uint160(msg.sender))<<64) + block.timestamp;
 		bytes32 introHash = keccak256(intro);
-		uint campaignID = uint(keccak256(abi.encodePacked(takerAddr_startTime64, totalCoinsToTaker, introHash)));
-		emit CampaignStart(campaignID, takerAddr, block.timestamp, totalCoinsToTaker, intro);
+		uint campaignID = uint(keccak256(abi.encodePacked(
+			takerAddr_startTime64, totalCoinsToTaker, introHash)));
+		emit CampaignStart(campaignID, msg.sender, block.timestamp, totalCoinsToTaker, intro);
 	}
 
 	function donate(uint campaignID, Donation calldata donation) external {
