@@ -8,7 +8,7 @@ interface IERC20 {
 
 contract ExchangeHub {
 	struct Donation {
-		uint256 amount_dueTime64_v8;
+		uint256 amount_dueTime80_v8;
 		bytes32 r;
 		bytes32 s;
 	}
@@ -20,21 +20,22 @@ contract ExchangeHub {
 	bytes32 private constant VERSION_HASH = keccak256(abi.encodePacked("v0.1.0"));
 	uint256 private constant CHAINID = 10000; // smartBCH mainnet
 	bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
-	bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 campaignID,uint256 takerAddr_dueTime64)"));
-	uint256 private constant MUL = 10**9; // number of nanoseconds in one second
+	bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 campaignID,uint256 takerAddr_dueTime80)"));
+	uint256 private constant MUL = 10**9; // number of femtoseconds in one second
+	uint256 private constant MaxClearCount = 10;
 
 	mapping(address => address) public makerToAgent;
-	mapping(address => uint64[1<<32]) public makerRecentDueTimeList;
-	mapping(address => uint) public makerRDTStartEnd;
+	mapping(address => mapping(uint => uint)) public makerNextRecentDueTime;
+	mapping(address => uint) public makerRDTHeadTail;
 	
-	event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64);
+	event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80);
 	event CampaignStart(uint256 indexed campaignID, address indexed coinTaker,
 			    uint startTime, uint totalCoinsToTaker, bytes intro);
 	event CampaignSuccess(uint256 indexed campaignID);
 	event Donate(uint256 indexed campaignID, Donation donation);
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
-			       uint256 takerAddr_dueTime64) private view returns (bytes32) {
+			       uint256 takerAddr_dueTime80) private view returns (bytes32) {
 		bytes32 DOMAIN_SEPARATOR = keccak256(abi.encode(
 						     EIP712_DOMAIN_TYPEHASH,
 						     NAME_HASH,
@@ -50,28 +51,27 @@ contract ExchangeHub {
 				coinsToMaker,
 				coinsToTaker,
 				campaignID,
-				takerAddr_dueTime64
+				takerAddr_dueTime80
 			))
 		));
 	}
 
 	function getSigner(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
-			  uint256 takerAddr_dueTime64_v8, bytes32 r, bytes32 s) private view returns (address) {
+			  uint256 takerAddr_dueTime80_v8, bytes32 r, bytes32 s) private view returns (address) {
 		bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, campaignID,
-						   takerAddr_dueTime64_v8>>8);
-		uint8 v = uint8(takerAddr_dueTime64_v8); //the lowest byte is v
+						   takerAddr_dueTime80_v8>>8);
+		uint8 v = uint8(takerAddr_dueTime80_v8); //the lowest byte is v
 		return ecrecover(eip712Hash, v, r, s);
 	}
 
-	function getRecentDueTimes(address makerAddr) external view returns (uint[] memory recentDueTimes) {
-		uint64[1<<32] storage recentDueTimeList = makerRecentDueTimeList[makerAddr];
-		uint startEnd = makerRDTStartEnd[makerAddr];
-		uint start = uint(uint32(startEnd>>32));
-		uint end = uint(uint32(startEnd));
-		recentDueTimes = new uint[](end-start);
-		for(uint i=start; i<end; i++) {
-			recentDueTimes[i-start] = recentDueTimeList[i];
+	function getRecentDueTimes(address makerAddr, uint maxCount) external view returns (uint[] memory) {
+		uint head = makerRDTHeadTail[makerAddr]>>80;
+		uint[] memory recentDueTimes = new uint[](maxCount);
+		for(uint i=0; i<maxCount && head != 0; i++) {
+			recentDueTimes[i] = head;
+			head = makerNextRecentDueTime[makerAddr][head];
 		}
+		return recentDueTimes;
 	}
 
 	function addNewDueTime(uint64 newDueTime) external {
@@ -79,63 +79,78 @@ contract ExchangeHub {
 		clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
 	}
 
-	function clearOldDueTimes(address makerAddr) external {
+	function clearOldDueTimes(uint maxCount, address makerAddr) external {
 		uint currTime = block.timestamp*MUL;
-		clearOldDueTimesAndInsertNew(makerAddr, 0, currTime);
+		uint headTail = makerRDTHeadTail[makerAddr];
+		(uint head, uint tail) = (headTail>>80, uint(uint80(headTail)));
+		(head, tail) = _clearOldDueTimes(maxCount, makerAddr, currTime, head, tail);
+		makerRDTHeadTail[makerAddr] = (head<<80) | tail;
 	}
 
-	function clearOldDueTimesAndInsertNew(address makerAddr, uint64 newDueTime, uint currTime) private {
-		uint64[1<<32] storage recentDueTimeList = makerRecentDueTimeList[makerAddr];
-		uint startEnd = makerRDTStartEnd[makerAddr];
-		uint start = uint(uint32(startEnd>>32));
-		uint end = uint(uint32(startEnd));
-		uint newStart = end;
-		for(uint i=start; i<end; i++) {
-			uint dueTime = recentDueTimeList[i];
-			require(dueTime != newDueTime, "cannot replay old order"); //check replay
-			if(dueTime < currTime) {
-				recentDueTimeList[i] = 0; //clear old useless records
-			} else if(newStart==end) { // not updated yet in this loop
-				newStart = i; //update start
-			}
+	function clearOldDueTimesAndInsertNew(address makerAddr, uint newDueTime, uint currTime) private {
+		uint headTail = makerRDTHeadTail[makerAddr];
+		(uint head, uint tail) = (headTail>>80, uint(uint80(headTail)));
+		require(head != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "dueTime not new");
+		(head, tail) = _clearOldDueTimes(MaxClearCount, makerAddr, currTime, head, tail);
+		(head, tail) = _addNewDueTime(makerAddr, newDueTime, head, tail);
+		makerRDTHeadTail[makerAddr] = (head<<80) | tail;
+	}
+
+	// The linked-list:
+	// No entries in queue: head = 0, tail = 0
+	// One entry in queue: head = dueTime, tail = dueTime 
+	// Two entries in queue: head = A, tail = B, makerNextRecentDueTime[makerAddr][A] = B
+	function _clearOldDueTimes(uint maxCount, address makerAddr, uint currTime,
+				  uint head, uint tail) private returns (uint, uint) {
+		for(uint i=0; i<maxCount && head<currTime && head!=0; i++) {
+			uint newHead = makerNextRecentDueTime[makerAddr][head];
+			makerNextRecentDueTime[makerAddr][head] = 0;
+			head = newHead;
 		}
-		if(newDueTime == 0) { //keep old value of end
-			makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end));
-		} else { //insert newDueTime at end
-			recentDueTimeList[end] = newDueTime;
-			makerRDTStartEnd[makerAddr] = uint(uint32(newStart<<32)) + uint(uint32(end+1));
+		if(head == 0) {
+			tail = 0;
 		}
+		return (head, tail);
+	}
+
+	function _addNewDueTime(address makerAddr, uint dueTime,
+				  uint head, uint tail) private returns (uint, uint) {
+		if(head == 0) {
+			return (dueTime, dueTime);
+		}
+		makerNextRecentDueTime[makerAddr][tail] = dueTime;
+		return (head, dueTime);
 	}
 
 	function setMakerAgent(address agent) external {
 		makerToAgent[msg.sender] = agent;
 	}
 
-	function exchangeWithAgentSig(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
+	function exchangeWithAgentSig(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80_v8,
 			              address makerAddr, bytes32 r, bytes32 s) payable external {
-		_exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8, makerAddr, r, s);
+		_exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8, makerAddr, r, s);
 	}
 
-	function exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
+	function exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80_v8,
 			   bytes32 r, bytes32 s) payable external {
-		_exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8, address(0), r, s);
+		_exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8, address(0), r, s);
 	}
 
-	function _exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_v8,
+	function _exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80_v8,
 			   address makerAddr, bytes32 r, bytes32 s) private {
 		if(makerAddr == address(0)) {				 
 			makerAddr = getSigner(coinsToMaker, coinsToTaker, uint(uint160(0)),
-					     takerAddr_dueTime64_v8, r, s);
+					     takerAddr_dueTime80_v8, r, s);
 		} else {
 			address agentAddr = getSigner(coinsToMaker, coinsToTaker, uint(uint160(makerAddr)),
-					     takerAddr_dueTime64_v8, r, s);
+					     takerAddr_dueTime80_v8, r, s);
 			require(makerToAgent[makerAddr] == agentAddr, "invalid agent");
 		}
-		uint64 dueTime = uint64(takerAddr_dueTime64_v8>>8);
+		uint dueTime = uint80(takerAddr_dueTime80_v8>>8);
 		uint currTime = block.timestamp*MUL;
 		require(currTime < dueTime, "too late");
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
-		address takerAddr = address(bytes20(uint160(takerAddr_dueTime64_v8>>(64+8))));
+		address takerAddr = address(bytes20(uint160(takerAddr_dueTime80_v8>>(64+8))));
 		if(takerAddr == address(0)) { //if taker is not specified, anyone sending tx can be the taker
 			takerAddr = msg.sender;
 		}
@@ -143,7 +158,7 @@ contract ExchangeHub {
 		uint coinAmountToMaker = uint(uint96(coinsToMaker));
 		address coinTypeToTaker = address(bytes20(uint160(coinsToTaker>>96)));
 		uint coinAmountToTaker = uint(uint96(coinsToTaker));
-		emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime64_v8>>8);
+		emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8>>8);
 		if(coinAmountToTaker != 0) {
 			(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
 				abi.encodeWithSignature("transferFrom(address,address,uint256)", 
@@ -163,18 +178,18 @@ contract ExchangeHub {
 
 	function handleDonation(Donation calldata donation, uint currTime, address coinTypeToTaker, uint campaignID,
 			       address takerAddr) private returns (uint) {
-		uint64 dueTime = uint64(donation.amount_dueTime64_v8>>8);
+		uint dueTime = uint64(donation.amount_dueTime80_v8>>8);
 		require(currTime < dueTime, "too late");
 		uint coinAmountToTaker;
-		uint takerAddr_dueTime64_v8;
+		uint takerAddr_dueTime80_v8;
 		{
-			uint amount = donation.amount_dueTime64_v8>>72;
+			uint amount = donation.amount_dueTime80_v8>>72;
 			coinAmountToTaker = (uint(uint160(coinTypeToTaker))<<96) + amount;
-			uint dueTime64_v8 = uint72(donation.amount_dueTime64_v8);
-			takerAddr_dueTime64_v8 = (uint(uint160(takerAddr))<<72) + dueTime64_v8;
+			uint dueTime80_v8 = uint72(donation.amount_dueTime80_v8);
+			takerAddr_dueTime80_v8 = (uint(uint160(takerAddr))<<72) + dueTime80_v8;
 		}
 		address makerAddr = getSigner(0/*zero coinsToMaker*/, coinAmountToTaker, campaignID,
-					      takerAddr_dueTime64_v8, donation.r, donation.s);
+					      takerAddr_dueTime80_v8, donation.r, donation.s);
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
 
 		(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
