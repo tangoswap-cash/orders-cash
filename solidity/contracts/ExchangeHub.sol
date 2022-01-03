@@ -21,7 +21,7 @@ contract ExchangeHub {
 	uint256 private constant CHAINID = 10000; // smartBCH mainnet
 	bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
 	bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 campaignID,uint256 takerAddr_dueTime80)"));
-	uint256 private constant MUL = 10**9; // number of femtoseconds in one second
+	uint256 private constant MUL = 10**12; // number of picoseconds in one second
 	uint256 private constant MaxClearCount = 10;
 
 	mapping(address => address) public makerToAgent;
@@ -87,6 +87,12 @@ contract ExchangeHub {
 		makerRDTHeadTail[makerAddr] = (head<<80) | tail;
 	}
 
+	function isReplay(address makerAddr, uint dueTime) external view returns (bool) {
+		uint currTime = block.timestamp*MUL;
+		uint head = makerRDTHeadTail[makerAddr]>>80;
+		return head == dueTime || makerNextRecentDueTime[makerAddr][dueTime] != 0;
+	}
+
 	function clearOldDueTimesAndInsertNew(address makerAddr, uint newDueTime, uint currTime) private {
 		uint headTail = makerRDTHeadTail[makerAddr];
 		(uint head, uint tail) = (headTail>>80, uint(uint80(headTail)));
@@ -150,7 +156,7 @@ contract ExchangeHub {
 		uint currTime = block.timestamp*MUL;
 		require(currTime < dueTime, "too late");
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
-		address takerAddr = address(bytes20(uint160(takerAddr_dueTime80_v8>>(64+8))));
+		address takerAddr = address(bytes20(uint160(takerAddr_dueTime80_v8>>(80+8))));
 		if(takerAddr == address(0)) { //if taker is not specified, anyone sending tx can be the taker
 			takerAddr = msg.sender;
 		}
