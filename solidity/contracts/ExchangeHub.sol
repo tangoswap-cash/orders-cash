@@ -88,15 +88,14 @@ contract ExchangeHub {
 	}
 
 	function isReplay(address makerAddr, uint dueTime) external view returns (bool) {
-		uint currTime = block.timestamp*MUL;
-		uint head = makerRDTHeadTail[makerAddr]>>80;
-		return head == dueTime || makerNextRecentDueTime[makerAddr][dueTime] != 0;
+		uint tail = uint80(makerRDTHeadTail[makerAddr]);
+		return tail == dueTime || makerNextRecentDueTime[makerAddr][dueTime] != 0;
 	}
 
 	function clearOldDueTimesAndInsertNew(address makerAddr, uint newDueTime, uint currTime) private {
 		uint headTail = makerRDTHeadTail[makerAddr];
 		(uint head, uint tail) = (headTail>>80, uint(uint80(headTail)));
-		require(head != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "dueTime not new");
+		require(tail != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "dueTime not new");
 		(head, tail) = _clearOldDueTimes(MaxClearCount, makerAddr, currTime, head, tail);
 		(head, tail) = _addNewDueTime(makerAddr, newDueTime, head, tail);
 		makerRDTHeadTail[makerAddr] = (head<<80) | tail;
@@ -231,6 +230,9 @@ contract ExchangeHub {
 
 	function donate(uint campaignID, Donation calldata donation) external {
 		emit Donate(campaignID, donation);
+	}
+
+	function putData(bytes calldata data) external pure {
 	}
 }
 
