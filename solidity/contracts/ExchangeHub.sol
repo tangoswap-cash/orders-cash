@@ -29,10 +29,11 @@ contract ExchangeHub {
 	mapping(address => uint) public makerRDTHeadTail;
 	
 	event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80);
-	event CampaignStart(uint256 indexed campaignID, address indexed coinTaker,
-			    uint startTime, uint totalCoinsToTaker, bytes intro);
+	event CampaignStart(uint256 indexed campaignID, uint takerAddr_startEndTime,
+			    uint totalCoinsToTaker, bytes32 introHash, bytes intro);
 	event CampaignSuccess(uint256 indexed campaignID);
-	event Donate(uint256 indexed campaignID, Donation donation);
+	event Donate(uint256 indexed campaignID, uint256 donatorAddr_timestamp,
+		     uint256 amount_dueTime80_v8, bytes32 r, bytes32 s, string words);
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
 			       uint256 takerAddr_dueTime80) private view returns (bytes32) {
@@ -57,7 +58,7 @@ contract ExchangeHub {
 	}
 
 	function getSigner(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
-			  uint256 takerAddr_dueTime80_v8, bytes32 r, bytes32 s) private view returns (address) {
+			  uint256 takerAddr_dueTime80_v8, bytes32 r, bytes32 s) public view returns (address) {
 		bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, campaignID,
 						   takerAddr_dueTime80_v8>>8);
 		uint8 v = uint8(takerAddr_dueTime80_v8); //the lowest byte is v
@@ -74,7 +75,7 @@ contract ExchangeHub {
 		return recentDueTimes;
 	}
 
-	function addNewDueTime(uint64 newDueTime) external {
+	function addNewDueTime(uint newDueTime) external {
 		uint currTime = block.timestamp*MUL;
 		clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
 	}
@@ -183,56 +184,59 @@ contract ExchangeHub {
 
 	function handleDonation(Donation calldata donation, uint currTime, address coinTypeToTaker, uint campaignID,
 			       address takerAddr) private returns (uint) {
-		uint dueTime = uint64(donation.amount_dueTime80_v8>>8);
+		uint dueTime = uint80(donation.amount_dueTime80_v8>>8);
 		require(currTime < dueTime, "too late");
-		uint coinAmountToTaker;
+		uint coinsToTaker;
 		uint takerAddr_dueTime80_v8;
 		{
-			uint amount = donation.amount_dueTime80_v8>>72;
-			coinAmountToTaker = (uint(uint160(coinTypeToTaker))<<96) + amount;
-			uint dueTime80_v8 = uint72(donation.amount_dueTime80_v8);
-			takerAddr_dueTime80_v8 = (uint(uint160(takerAddr))<<72) + dueTime80_v8;
+			uint amount = donation.amount_dueTime80_v8>>88;
+			coinsToTaker = (uint(uint160(coinTypeToTaker))<<96) + amount;
+			uint dueTime80_v8 = uint88(donation.amount_dueTime80_v8);
+			takerAddr_dueTime80_v8 = (uint(uint160(takerAddr))<<88) + dueTime80_v8;
 		}
-		address makerAddr = getSigner(0/*zero coinsToMaker*/, coinAmountToTaker, campaignID,
+		address makerAddr = getSigner(0/*zero coinsToMaker*/, coinsToTaker, campaignID,
 					      takerAddr_dueTime80_v8, donation.r, donation.s);
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
 
+		uint amount = donation.amount_dueTime80_v8>>88;
 		(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
 			abi.encodeWithSignature("transferFrom(address,address,uint256)", 
-			makerAddr, takerAddr, coinAmountToTaker));
+			makerAddr, takerAddr, amount));
 		require(success, "transferFrom fail");				
-		return coinAmountToTaker;
+		return amount;
 	}
 
-	function endCampaign(uint takerAddr_startTime64, uint totalCoinsToTaker, bytes32 introHash,
+	function endCampaign(uint takerAddr_startEndTime, uint totalCoinsToTaker, bytes32 introHash,
 			   Donation[] calldata donations) external {
 		uint currTime = block.timestamp*MUL;
 		address coinTypeToTaker = address(uint160(totalCoinsToTaker>>96));
 		uint campaignID = uint(keccak256(abi.encodePacked(
-			takerAddr_startTime64, totalCoinsToTaker, introHash)));
-		address takerAddr = address(uint160(takerAddr_startTime64>>64));
+			takerAddr_startEndTime, totalCoinsToTaker, introHash)));
+		address takerAddr = address(uint160(takerAddr_startEndTime>>96));
+		require(msg.sender != takerAddr, "not taker");
+		uint endTime = uint(uint48(takerAddr_startEndTime));
+		require(block.timestamp < endTime, "after deadline");
 		uint sumAmount = 0;
 		for(uint i=0; i<donations.length; i++) {
 			sumAmount += handleDonation(donations[i], currTime, coinTypeToTaker, campaignID, takerAddr);
 		}
 		uint totalAmount = uint(uint96(totalCoinsToTaker));
-		require(sumAmount >= totalAmount, "campaign fail");
+		require(sumAmount >= totalAmount, "donation not enough");
 		emit CampaignSuccess(campaignID);
 	}
 
-	function startCampaign(uint totalCoinsToTaker, bytes calldata intro) external {
-		uint takerAddr_startTime64 = (uint(uint160(msg.sender))<<64) + block.timestamp;
+	function startCampaign(uint48 endTime, uint totalCoinsToTaker, bytes calldata intro) external {
+		uint takerAddr_startEndTime = (uint(uint160(msg.sender))<<96) + block.timestamp<<48 + uint(endTime);
 		bytes32 introHash = keccak256(intro);
 		uint campaignID = uint(keccak256(abi.encodePacked(
-			takerAddr_startTime64, totalCoinsToTaker, introHash)));
-		emit CampaignStart(campaignID, msg.sender, block.timestamp, totalCoinsToTaker, intro);
+			takerAddr_startEndTime, totalCoinsToTaker, introHash)));
+		emit CampaignStart(campaignID, takerAddr_startEndTime, totalCoinsToTaker, introHash, intro);
 	}
 
-	function donate(uint campaignID, Donation calldata donation) external {
-		emit Donate(campaignID, donation);
-	}
-
-	function putData(bytes calldata data) external pure {
+	function donate(uint campaignID, uint256 amount_dueTime80_v8, 
+			bytes32 r, bytes32 s, string calldata words) external {
+		uint donatorAddr_timestamp = (uint(uint160(msg.sender))<<64)|block.timestamp;
+		emit Donate(campaignID, donatorAddr_timestamp, amount_dueTime80_v8, r, s, words);
 	}
 }
 
