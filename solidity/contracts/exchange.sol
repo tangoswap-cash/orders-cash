@@ -47,6 +47,8 @@ contract Exchange {
 		return ecrecover(eip712Hash, v, r, s);
 	}
 
+	// takerAddr_dueTime64_shift8_nonce8_v8:
+	// { taker_address 160bit | duration_time 64bit | shift 8bit | nonce 8bit | v 8bit }
 	function exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime64_shift8_nonce8_v8,
 			  bytes32 r, bytes32 s) payable external {
 		address makerAddr = getMaker(coinsToMaker, coinsToMaker,

@@ -17,3 +17,4 @@ solidity/node_modules
 *.swp
 solidity/truffle-config.js
 solidity/build
+.idea/

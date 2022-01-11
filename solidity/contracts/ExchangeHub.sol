@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache
 pragma solidity 0.8.10;
 
+//import "hardhat/console.sol";
+
 interface IERC20 {
     function transfer(address recipient, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
@@ -36,7 +38,7 @@ contract ExchangeHub {
 		     uint256 amount_dueTime80_v8, bytes32 r, bytes32 s, string words);
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
-			       uint256 takerAddr_dueTime80) private view returns (bytes32) {
+			       uint256 takerAddr_dueTime80) public view returns (bytes32) {
 		bytes32 DOMAIN_SEPARATOR = keccak256(abi.encode(
 						     EIP712_DOMAIN_TYPEHASH,
 						     NAME_HASH,
@@ -213,7 +215,7 @@ contract ExchangeHub {
 		uint campaignID = uint(keccak256(abi.encodePacked(
 			takerAddr_startEndTime, totalCoinsToTaker, introHash)));
 		address takerAddr = address(uint160(takerAddr_startEndTime>>96));
-		require(msg.sender != takerAddr, "not taker");
+		require(msg.sender == takerAddr, "not taker");
 		uint endTime = uint(uint48(takerAddr_startEndTime));
 		require(block.timestamp < endTime, "after deadline");
 		uint sumAmount = 0;
