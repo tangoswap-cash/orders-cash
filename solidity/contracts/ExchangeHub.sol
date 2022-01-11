@@ -29,8 +29,8 @@ contract ExchangeHub {
 	mapping(address => uint) public makerRDTHeadTail;
 	
 	event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80);
-	event CampaignStart(uint256 indexed campaignID, uint takerAddr_startEndTime,
-			    uint totalCoinsToTaker, bytes32 introHash, bytes intro);
+	event CampaignStart(uint256 indexed campaignID, uint256 takerAddr_startEndTime,
+			    uint256 totalCoinsToTaker, bytes32 introHash, bytes intro);
 	event CampaignSuccess(uint256 indexed campaignID);
 	event Donate(uint256 indexed campaignID, uint256 donatorAddr_timestamp,
 		     uint256 amount_dueTime80_v8, bytes32 r, bytes32 s, string words);
@@ -226,7 +226,7 @@ contract ExchangeHub {
 	}
 
 	function startCampaign(uint48 endTime, uint totalCoinsToTaker, bytes calldata intro) external {
-		uint takerAddr_startEndTime = (uint(uint160(msg.sender))<<96) + block.timestamp<<48 + uint(endTime);
+		uint takerAddr_startEndTime = (uint(uint160(msg.sender))<<96) + (block.timestamp<<48) + uint(endTime);
 		bytes32 introHash = keccak256(intro);
 		uint campaignID = uint(keccak256(abi.encodePacked(
 			takerAddr_startEndTime, totalCoinsToTaker, introHash)));
