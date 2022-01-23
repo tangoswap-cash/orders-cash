@@ -85,6 +85,7 @@ contract ExchangeHub {
 
 	//By adding a new dueTime entry in the linked-list, we can revoke a coin-exchanging message
 	function addNewDueTime(uint newDueTime) external {
+		require(newDueTime != 0, "invalid dueTime");
 		uint currTime = block.timestamp*MUL;
 		clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
 	}
@@ -160,6 +161,9 @@ contract ExchangeHub {
 
 	function _exchange(uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80_v8,
 			   address makerAddr, bytes32 r, bytes32 s) private {
+		uint dueTime = uint80(takerAddr_dueTime80_v8>>8);
+		uint currTime = block.timestamp*MUL;
+		require(currTime < dueTime, "too late");
 		if(makerAddr == address(0)) { //called by "exchange"
 			makerAddr = getSigner(coinsToMaker, coinsToTaker, uint(uint160(0)),
 					     takerAddr_dueTime80_v8, r, s);
@@ -168,9 +172,6 @@ contract ExchangeHub {
 					     takerAddr_dueTime80_v8, r, s);
 			require(makerToAgent[makerAddr] == agentAddr, "invalid agent");
 		}
-		uint dueTime = uint80(takerAddr_dueTime80_v8>>8);
-		uint currTime = block.timestamp*MUL;
-		require(currTime < dueTime, "too late");
 		clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
 		address takerAddr = address(bytes20(uint160(takerAddr_dueTime80_v8>>(80+8))));
 		if(takerAddr == address(0)) { //if taker is not specified, anyone sending tx can be the taker
@@ -185,12 +186,13 @@ contract ExchangeHub {
 			(bool success, bytes memory _notUsed) = coinTypeToTaker.call(
 				abi.encodeWithSignature("transferFrom(address,address,uint256)", 
 				makerAddr, takerAddr, coinAmountToTaker));
-			require(success, "transferFrom fail");				
+			require(success, "transferFrom fail");
 		}
 		if(coinAmountToMaker != 0) {
 			if(coinTypeToMaker == BCHAddress) {
 				require(msg.value == coinAmountToMaker, "bch not enough");
-				makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
+				(bool success, bytes memory _notUsed) = makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
+				require(success, "transfer fail");
 			} else {
 				require(msg.value == 0, "no need for bch");
 				IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
