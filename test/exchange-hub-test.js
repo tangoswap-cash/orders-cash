@@ -10,7 +10,7 @@ const erc20ABI = [
     `function approve(address spender, uint value) external returns (bool)`
 ]
 
-describe("ExchangeHub", function () {
+describe("Burros", function () {
 
     let maker, taker;
     let exchange;
@@ -25,7 +25,7 @@ describe("ExchangeHub", function () {
         await acc0.sendTransaction({to: maker.address, value: ethers.utils.parseEther("10.0")});
         await acc0.sendTransaction({to: taker.address, value: ethers.utils.parseEther("10.0")});
 
-        const Exchange = await ethers.getContractFactory("ExchangeHub");
+        const Exchange = await ethers.getContractFactory("Burros");
         exchange = await Exchange.deploy();
         await exchange.deployed();
 
