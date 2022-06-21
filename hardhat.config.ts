@@ -11,12 +11,23 @@ import "hardhat-spdx-license-identifier"
 import "hardhat-typechain"
 import "hardhat-watcher"
 import "solidity-coverage"
-import "./tasks"
+// import "./tasks"
 
 import { HardhatUserConfig } from "hardhat/types"
 import { removeConsoleLog } from "hardhat-preprocessor"
 
-const accounts = [process.env.DEPLOYER_PRIVATE_KEY, process.env.DEV_PRIVATE_KEY, process.env.TESTER_PRIVATE_KEY]
+declare var process : {
+  env: {
+    DEPLOYER_PRIVATE_KEY: string,
+    DEV_PRIVATE_KEY: string,
+    TESTER_PRIVATE_KEY: string,
+    COINMARKETCAP_API_KEY: string,
+    REPORT_GAS: string,
+    FORKING: string,
+  }
+}
+
+const privateKeys : string[] = [process.env.DEPLOYER_PRIVATE_KEY, process.env.DEV_PRIVATE_KEY, process.env.TESTER_PRIVATE_KEY]
 
 const config: HardhatUserConfig = {
   abiExporter: {
@@ -69,7 +80,7 @@ const config: HardhatUserConfig = {
     smartbch: {
       url: "https://smartbch.fountainhead.cash/mainnet",
       // url: "https://smartbch.greyh.at",
-      accounts,
+      // accounts: privateKeys,
       chainId: 10000,
       live: true,
       saveDeployments: true,
@@ -78,7 +89,7 @@ const config: HardhatUserConfig = {
     "smartbch-amber": {
       url: "http://35.220.203.194:8545",
       // url: "https://moeing.tech:9545",
-      accounts,
+      // accounts: privateKeys,
       chainId: 10001,
       live: true,
       saveDeployments: true,
