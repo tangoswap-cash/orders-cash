@@ -35,12 +35,6 @@ contract Burros {
 	//A maker and a taker exchange their coins
 	event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker,
 		       uint256 takerAddr_dueTime80);
-	// //The following events are used in crowdfunding campaign
-	// event CampaignStart(uint256 indexed campaignID, uint256 takerAddr_startEndTime,
-	// 		    uint256 totalCoinsToTaker, bytes32 introHash, bytes intro);
-	// event CampaignSuccess(uint256 indexed campaignID);
-	// event Donate(uint256 indexed campaignID, uint256 donatorAddr_timestamp,
-	// 	     uint256 amount_dueTime80_v8, bytes32 r, bytes32 s, string words);
 
 	function getEIP712Hash(uint256 coinsToMaker, uint256 coinsToTaker, uint256 campaignID,
 			       uint256 takerAddr_dueTime80) public view returns (bytes32) {
