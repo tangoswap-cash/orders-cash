@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache
 pragma solidity 0.8.10;
 
-//import "hardhat/console.sol";
+import "hardhat/console.sol";
 
 interface IERC20 {
     function transfer(address recipient, uint256 amount) external returns (bool);
@@ -11,6 +11,9 @@ interface IERC20 {
         address recipient,
         uint256 amount
     ) external returns (bool);
+
+    function allowance(address owner, address spender) external returns (uint256);
+    function balanceOf(address _owner) external view returns (uint256);
 }
 
 contract Burros {
@@ -21,8 +24,13 @@ contract Burros {
     bytes32 private constant VERSION_HASH = keccak256(abi.encodePacked("v0.1.0"));
     uint256 private constant CHAINID = 10000; // smartBCH mainnet
     bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
+
+    // bytes32 private constant TYPE_HASH =
+    //     keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 takerAddr_dueTime80)"));
+
     bytes32 private constant TYPE_HASH =
-        keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 takerAddr_dueTime80)"));
+        keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 dueTime80)"));
+
     uint256 private constant MUL = 10**12; // number of picoseconds in one second
     uint256 private constant MaxClearCount = 10;
 
@@ -31,17 +39,19 @@ contract Burros {
     mapping(address => uint256) public makerRDTHeadTail; //the head and tail of a linked-list
 
     //A maker and a taker exchange their coins
-    event Exchange(address indexed maker, uint256 coinsToMaker, uint256 coinsToTaker, uint256 takerAddr_dueTime80);
+    event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
+    // event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker);
+
 
     function getEIP712Hash(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 takerAddr_dueTime80
+        uint256 dueTime80
     ) public view returns (bytes32) {
         bytes32 DOMAIN_SEPARATOR = keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, CHAINID, address(this), SALT));
         return
             keccak256(
-                abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(TYPE_HASH, coinsToMaker, coinsToTaker, takerAddr_dueTime80)))
+                abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(TYPE_HASH, coinsToMaker, coinsToTaker, dueTime80)))
             );
     }
 
@@ -49,12 +59,12 @@ contract Burros {
     function getSigner(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 takerAddr_dueTime80_v8,
+        uint256 dueTime80_v8,
         bytes32 r,
         bytes32 s
     ) public view returns (address) {
-        bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8 >> 8);
-        uint8 v = uint8(takerAddr_dueTime80_v8); //the lowest byte is v
+        bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, dueTime80_v8 >> 8);
+        uint8 v = uint8(dueTime80_v8); //the lowest byte is v
         return ecrecover(eip712Hash, v, r, s);
     }
 
@@ -73,7 +83,7 @@ contract Burros {
     // ** Se usa para que el Maker cancele su propia orden
     // By adding a new dueTime entry in the linked-list, we can revoke a coin-exchanging message
     function addNewDueTime(uint256 newDueTime) external {
-        require(newDueTime != 0, "invalid dueTime");
+        require(newDueTime != 0, "Burros: invalid dueTime");
         uint256 currTime = block.timestamp * MUL;
         clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
     }
@@ -103,7 +113,7 @@ contract Burros {
     ) private {
         uint256 headTail = makerRDTHeadTail[makerAddr];
         (uint256 head, uint256 tail) = (headTail >> 80, uint256(uint80(headTail)));
-        require(tail != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "dueTime not new");
+        require(tail != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "Burros: dueTime not new");
 
         (head, tail) = _clearOldDueTimes(MaxClearCount, makerAddr, currTime, head, tail);
         (head, tail) = _addNewDueTime(makerAddr, newDueTime, head, tail);
@@ -152,53 +162,66 @@ contract Burros {
     function exchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 takerAddr_dueTime80_v8,
+        uint256 dueTime80_v8,
         bytes32 r,
         bytes32 s
     ) external payable {
-        _exchange(coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8, r, s);
+        _exchange(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
     }
 
+    // 0x
+    // 9fe46736679d2d9a65f0992f2272de9f3c7fa6e0
     function _exchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 takerAddr_dueTime80_v8,
+        uint256 dueTime80_v8,
         bytes32 r,
         bytes32 s
     ) private {
-        uint256 dueTime = uint80(takerAddr_dueTime80_v8 >> 8);
-        uint256 currTime = block.timestamp * MUL;
-        require(currTime < dueTime, "too late");
+        // console.log("dueTime80_v8:");
+        // console.log(dueTime80_v8);
 
-        address makerAddr = getSigner(coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8, r, s);
+        uint256 dueTime = uint80(dueTime80_v8 >> 8);
+        uint256 currTime = block.timestamp * MUL;
+        require(currTime < dueTime, "Burros: order expired");
+
+        // console.log("dueTime:");
+        // console.log(dueTime);
+
+        address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
 
         clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
-        address takerAddr = address(bytes20(uint160(takerAddr_dueTime80_v8 >> (80 + 8))));
-        if (takerAddr == address(0)) {
-            //if taker is not specified, anyone sending tx can be the taker
-            takerAddr = msg.sender;
-        }
+        address takerAddr = msg.sender;
 
         address coinTypeToMaker = address(bytes20(uint160(coinsToMaker >> 96)));
         uint256 coinAmountToMaker = uint256(uint96(coinsToMaker));
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
         uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
-        emit Exchange(makerAddr, coinsToMaker, coinsToTaker, takerAddr_dueTime80_v8 >> 8);
+
+        console.log("coinAmountToMaker:");
+        console.log(coinAmountToMaker);
+        console.log("coinAmountToTaker:");
+        console.log(coinAmountToTaker);
+
+
+        emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
+        // emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker);
 
         if (coinAmountToTaker != 0) {
             (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
                 abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
             );
-            require(success, "transferFrom failed");
+            require(success, "Burros: transferFrom failed");
         }
 
         if (coinAmountToMaker != 0) {
             if (coinTypeToMaker == BCHAddress) {
-                require(msg.value == coinAmountToMaker, "BCH not enough");
+                require(msg.value <= coinAmountToMaker, "Burros: BCH sent exceeds the amount to be sent");
+                require(msg.value == coinAmountToMaker, "Burros: BCH not enough");
                 (bool success, bytes memory _notUsed) = makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
-                require(success, "transfer failed");
+                require(success, "Burros: transfer failed");
             } else {
-                require(msg.value == 0, "no need for BCH");
+                require(msg.value == 0, "Burros: no need for BCH");
                 IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
             }
         }
