@@ -18,6 +18,7 @@ interface IERC20 {
 
 contract Burros {
     address private constant BCHAddress = 0x0000000000000000000000000000000000002711;
+    // address private constant BCHAddress = 0x0000000000000000000000000000000000000000;
     string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
     bytes32 private constant NAME_HASH = keccak256(abi.encodePacked("exchange dapp"));
@@ -198,25 +199,62 @@ contract Burros {
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
         uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
 
-        console.log("coinAmountToMaker:");
-        console.log(coinAmountToMaker);
-        console.log("coinAmountToTaker:");
-        console.log(coinAmountToTaker);
-
+        require(coinTypeToMaker != BCHAddress || msg.value <= coinAmountToMaker, "Burros: BCH sent exceeds the amount to be sent");
 
         emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
         // emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker);
 
         if (coinAmountToTaker != 0) {
+            // console.log("makerAddr:");
+            // console.log(makerAddr);
+            // console.log("takerAddr:");
+            // console.log(takerAddr);
+            // console.log("takerAddr:");
+            // console.log(takerAddr);
+            // console.log("coinAmountToTaker:");
+            // console.log(coinAmountToTaker);
+
+            console.log("BCHAddress:");
+            console.log(BCHAddress);
+            console.log("coinTypeToTaker:");
+            console.log(coinTypeToTaker);
+
+            // console.log("maker BCH balance:");
+            // console.log(makerAddr.balance);
+
+            // uint256 allo = coinTypeToTaker.allowance(makerAddr, address(this));
+            // console.log("allo:");
+            // console.log(allo);
+
+            // function allowance(address owner, address spender) external returns (uint256);
+            (bool success2, bytes memory allowanceData) = coinTypeToTaker.call(
+                abi.encodeWithSignature("allowance(address,address)", makerAddr, address(this))
+            );
+            console.log("success2:");
+            console.log(success2);
+            // console.log("allowanceData:");
+            // console.log(allowanceData);
+
+            // (uint a, uint[2] memory b, bytes memory c) = abi.decode(data, (uint, uint[2], bytes))
+            (uint256 allowance) = abi.decode(allowanceData, (uint256));
+            console.log("allowance:");
+            console.log(allowance);
+
+
             (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
                 abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
             );
+            // console.log("success:");
+            // console.log(success);
+
+            // console.log("maker BCH balance:");
+            // console.log(makerAddr.balance);
+
             require(success, "Burros: transferFrom failed");
         }
 
         if (coinAmountToMaker != 0) {
             if (coinTypeToMaker == BCHAddress) {
-                require(msg.value <= coinAmountToMaker, "Burros: BCH sent exceeds the amount to be sent");
                 require(msg.value == coinAmountToMaker, "Burros: BCH not enough");
                 (bool success, bytes memory _notUsed) = makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
                 require(success, "Burros: transfer failed");
