@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache
 pragma solidity 0.8.10;
 
-import "hardhat/console.sol";
+// import "hardhat/console.sol";
 
 interface IERC20 {
     function transfer(address recipient, uint256 amount) external returns (bool);
@@ -12,13 +12,15 @@ interface IERC20 {
         uint256 amount
     ) external returns (bool);
 
-    function allowance(address owner, address spender) external returns (uint256);
-    function balanceOf(address _owner) external view returns (uint256);
+    // function allowance(address owner, address spender) external returns (uint256);
+    // function balanceOf(address _owner) external view returns (uint256);
 }
 
 contract Burros {
-    address private constant BCHAddress = 0x0000000000000000000000000000000000002711;
-    // address private constant BCHAddress = 0x0000000000000000000000000000000000000000;
+    address private constant SEP206Addr = 0x0000000000000000000000000000000000002711;
+    address private constant BCH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address private constant ZERO_ADDRESS = 0x0000000000000000000000000000000000000000;
+
     string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
     bytes32 private constant NAME_HASH = keccak256(abi.encodePacked("exchange dapp"));
@@ -35,6 +37,9 @@ contract Burros {
     uint256 private constant MUL = 10**12; // number of picoseconds in one second
     uint256 private constant MaxClearCount = 10;
 
+    address public referral;
+    uint256 public feePercent;
+
     //To prevent replay of coin-exchanging messages, we use dueTime to identify a coin-exchanging message uniquely
     mapping(address => mapping(uint256 => uint256)) public makerNextRecentDueTime; //the pointers of a linked-list
     mapping(address => uint256) public makerRDTHeadTail; //the head and tail of a linked-list
@@ -42,7 +47,28 @@ contract Burros {
     //A maker and a taker exchange their coins
     event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
     // event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker);
+    event ReferralUpdated(address indexed newReferral);
+    event FeePercentUpdated(uint256 feePercent);
 
+    constructor(address _referral, uint256 _feePercent) public {
+        setNewReferral(_referral);
+        setNewFeePercent(_feePercent);
+    }
+
+    function isBCH(address tokenAddr) internal pure returns(bool) {
+        return (tokenAddr == ZERO_ADDRESS || tokenAddr == BCH_ADDRESS || tokenAddr == SEP206Addr);
+    }
+
+    function setNewReferral(address _referral) public onlyOwner {
+        referral = _referral;
+        emit ReferralUpdated(referral);
+    }
+
+    function setNewFeePercent(uint256 _feePercent) public onlyOwner {
+        require(_feePercent >= 0.0005e18 && _feePercent <= 0.03e18, "Burros: feePercent out of range");
+        feePercent = _feePercent;
+        emit FeePercentUpdated(referral);
+    }
 
     function getEIP712Hash(
         uint256 coinsToMaker,
@@ -179,15 +205,9 @@ contract Burros {
         bytes32 r,
         bytes32 s
     ) private {
-        // console.log("dueTime80_v8:");
-        // console.log(dueTime80_v8);
-
         uint256 dueTime = uint80(dueTime80_v8 >> 8);
         uint256 currTime = block.timestamp * MUL;
         require(currTime < dueTime, "Burros: order expired");
-
-        // console.log("dueTime:");
-        // console.log(dueTime);
 
         address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
 
@@ -199,69 +219,21 @@ contract Burros {
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
         uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
 
-        require(coinTypeToMaker != BCHAddress || msg.value <= coinAmountToMaker, "Burros: BCH sent exceeds the amount to be sent");
+        require( ! isBCH(coinTypeToMaker), "Burros: BCH is not allowed");
+        require( ! isBCH(coinTypeToTaker), "Burros: BCH is not allowed");
 
         emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
-        // emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker);
 
         if (coinAmountToTaker != 0) {
-            // console.log("makerAddr:");
-            // console.log(makerAddr);
-            // console.log("takerAddr:");
-            // console.log(takerAddr);
-            // console.log("takerAddr:");
-            // console.log(takerAddr);
-            // console.log("coinAmountToTaker:");
-            // console.log(coinAmountToTaker);
-
-            console.log("BCHAddress:");
-            console.log(BCHAddress);
-            console.log("coinTypeToTaker:");
-            console.log(coinTypeToTaker);
-
-            // console.log("maker BCH balance:");
-            // console.log(makerAddr.balance);
-
-            // uint256 allo = coinTypeToTaker.allowance(makerAddr, address(this));
-            // console.log("allo:");
-            // console.log(allo);
-
-            // function allowance(address owner, address spender) external returns (uint256);
-            (bool success2, bytes memory allowanceData) = coinTypeToTaker.call(
-                abi.encodeWithSignature("allowance(address,address)", makerAddr, address(this))
-            );
-            console.log("success2:");
-            console.log(success2);
-            // console.log("allowanceData:");
-            // console.log(allowanceData);
-
-            // (uint a, uint[2] memory b, bytes memory c) = abi.decode(data, (uint, uint[2], bytes))
-            (uint256 allowance) = abi.decode(allowanceData, (uint256));
-            console.log("allowance:");
-            console.log(allowance);
-
-
             (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
                 abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
             );
-            // console.log("success:");
-            // console.log(success);
-
-            // console.log("maker BCH balance:");
-            // console.log(makerAddr.balance);
-
             require(success, "Burros: transferFrom failed");
         }
 
         if (coinAmountToMaker != 0) {
-            if (coinTypeToMaker == BCHAddress) {
-                require(msg.value == coinAmountToMaker, "Burros: BCH not enough");
-                (bool success, bytes memory _notUsed) = makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
-                require(success, "Burros: transfer failed");
-            } else {
-                require(msg.value == 0, "Burros: no need for BCH");
-                IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
-            }
+            require(msg.value == 0, "Burros: no need for BCH");
+            IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
         }
     }
 }
