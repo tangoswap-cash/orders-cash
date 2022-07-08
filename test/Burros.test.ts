@@ -22,14 +22,22 @@ export interface IMessage {
     dueTime80: string
 }
 
-describe("Burros", function () {
+describe("Limit orders tests", function () {
     let maker: Wallet
     let taker: Wallet
     let referal: Wallet
+    let referal2: Wallet
     let exchange: Contract
+    let scammer: Contract
     let wBCH: Contract
     let sUSD: Contract
     let sep206: Contract
+
+    async function checkBalances(token: Contract, sumAmount: BigNumber) {
+        expect(
+            (await token.balanceOf(taker.address)).add(await token.balanceOf(referal.address))
+        ).to.equal(sumAmount);
+    }
 
     before(async function () {
         const [acc0] = await ethers.getSigners()
@@ -37,6 +45,7 @@ describe("Burros", function () {
         maker = new ethers.Wallet("82c149d8f7257a6ab690d351d482de51e3540a95859a72a96ef5d744e1f69d60", acc0.provider)
         taker = new ethers.Wallet("f37a49a536c941829424a502bb4579f2ab5451c7104c8541e7797798f3daf4ec", acc0.provider)
         referal = new ethers.Wallet("e3540a95859a72a96ef5d744e1f69d60f37a49a536c941829424a502bb4579f2", acc0.provider)
+        referal2 = new ethers.Wallet("ab5451c7104c8541e7797798f3daf4ec82c149d8f7257a6ab690d351d482de51", acc0.provider)
 
         await acc0.sendTransaction({
             to: maker.address,
@@ -48,16 +57,67 @@ describe("Burros", function () {
         })
 
         const Exchange = await ethers.getContractFactory("Burros")
-        exchange = await Exchange.deploy()
+        exchange = await Exchange.deploy(referal.address, toWei("0.0005"))
         await exchange.deployed()
 
-        // console.log("exchange.address: ", exchange.address);
+        const Scammer = await ethers.getContractFactory("Scammer")
+        scammer = await Exchange.deploy()
+        await scammer.deployed()
+
 
         const TestERC20 = await ethers.getContractFactory("TestERC20")
         wBCH = await TestERC20.deploy("wBCH", ethers.utils.parseUnits("10000000", 18), 18)
         sUSD = await TestERC20.deploy("sUSD", ethers.utils.parseUnits("10000000", 18), 18)
         await Promise.all([wBCH.deployed(), sUSD.deployed()])
     })
+
+    // ----------------------------------------------------------------------------------------------------------------
+    it("checks the refereal and feePercent set at the constructor", async function () {
+        expect(await exchange.referral()).to.equal(referal.address)
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+    })
+
+    it("sets a new referal", async function () {
+        expect(await exchange.referral()).to.equal(referal.address)
+        await exchange.connect(exchange.signer).setNewReferral(referal2.address);
+        expect(await exchange.referral()).to.equal(referal2.address)
+        await exchange.connect(exchange.signer).setNewReferral(referal.address);
+        expect(await exchange.referral()).to.equal(referal.address)
+    })
+
+    it("fails when a non-owner try to set a new referal", async function () {
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+        await expect(exchange.connect(taker).setNewReferral(referal2.address))
+            .to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("sets a new fee percent by the owner", async function () {
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+        await exchange.connect(exchange.signer).setNewFeePercent(toWei("0.0008"));
+        expect(await exchange.feePercent()).to.equal(toWei("0.0008"))
+        await exchange.connect(exchange.signer).setNewFeePercent(toWei("0.0005"));
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+    })
+
+    it("fails when a non-owner try to set a new fee percent", async function () {
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+        await expect(exchange.connect(taker).setNewFeePercent(toWei("0.0005")))
+            .to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("fails when try to set a new fee percent out of range", async function () {
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+        await expect(exchange.connect(exchange.signer).setNewFeePercent(toWei("0.0004")))
+            .to.be.revertedWith("Burros: feePercent out of range")
+    })
+
+    it("fails when try to set a new fee percent out of range (2)", async function () {
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
+        await expect(exchange.connect(exchange.signer).setNewFeePercent(toWei("0.0301")))
+            .to.be.revertedWith("Burros: feePercent out of range")
+    })
+
+    // ----------------------------------------------------------------------------------------------------------------
 
     it("getEIP712Hash", async function () {
         const msg: IMessage = {
@@ -84,13 +144,18 @@ describe("Burros", function () {
         expect(signerAddr).to.equal(maker.address)
     })
 
-    // --------------
+    // ----------------------------------------------------------------------------------------------------------------
 
     it("makes a wBCH -> sUSD order and then it taken properly", async function () {
         await wBCH.transfer(maker.address, toWei("10"))
         await sUSD.transfer(taker.address, toWei("5000"))
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("10"))
         expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("5000"))
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("0"))
+        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
 
         const dueTime = getDueTime(1);
 
@@ -114,10 +179,19 @@ describe("Burros", function () {
             .to.emit(exchange, "Exchange")
             .withArgs(maker.address, taker.address, sUSD.address, toWei("500"), wBCH.address, toWei("1"), dueTime)
 
+        // const fee = calculateFee(toWei("1"), await exchange.feePercent());
+
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("9"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("1"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("0.9995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("500"))
         expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("4500"))
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.0005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("0"))
+
+        await checkBalances(wBCH, toWei("1"));
+
+        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
     })
 
     it("fails when try to take the order too late", async function () {
@@ -180,6 +254,11 @@ describe("Burros", function () {
         expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("4500"))
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("9"))
         expect(await sUSD.allowance(taker.address, exchange.address)).to.equal(toWei("4500"))
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.0005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("0"))
+        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await exchange.feePercent()).to.equal(toWei("0.0005"))
 
         const dueTime = getDueTime(1);
 
@@ -199,9 +278,18 @@ describe("Burros", function () {
             .withArgs(maker.address, taker.address, sUSD.address, toWei("4500"), wBCH.address, toWei("9"), dueTime)
 
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("0"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("10"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("9.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("5000"))
         expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("0"))
+
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("0"))
+
+        await checkBalances(wBCH, toWei("10"));
+
+        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
@@ -210,9 +298,11 @@ describe("Burros", function () {
 
     it("makes an order the other way around (sUSD -> wBCH)", async function () {
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("0"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("10"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("9.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("5000"))
         expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("0"))
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
@@ -236,9 +326,16 @@ describe("Burros", function () {
             .withArgs(maker.address, taker.address, wBCH.address, toWei("5"), sUSD.address, toWei("2500"), dueTime)
 
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("5"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("5"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("2500"))
-        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2500"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2498.75"))
+
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("1.25"))
+
+        await checkBalances(wBCH, toWei("5"));
+        await checkBalances(sUSD, toWei("2500"));
+
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
@@ -247,9 +344,9 @@ describe("Burros", function () {
 
     it("fails when the taker allowance is not enough", async function () {
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("5"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("5"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("2500"))
-        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2500"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2498.75"))
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
@@ -276,9 +373,13 @@ describe("Burros", function () {
 
     it("fails when the taker balance is not enough", async function () {
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("5"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("5"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("2500"))
-        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2500"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2498.75"))
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("1.25"))
+        await checkBalances(wBCH, toWei("5"));
+        await checkBalances(sUSD, toWei("2500"));
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("250"))
@@ -303,9 +404,13 @@ describe("Burros", function () {
 
     it("works after changing the allowance and with proper taker balance", async function () {
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("5"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("5"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("2500"))
-        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2500"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2498.75"))
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("1.25"))
+        await checkBalances(wBCH, toWei("5"));
+        await checkBalances(sUSD, toWei("2500"));
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("6"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("250"))
@@ -326,9 +431,16 @@ describe("Burros", function () {
             .withArgs(maker.address, taker.address, wBCH.address, toWei("1"), sUSD.address, toWei("250"), dueTime)
 
         expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("3.995"))
         expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("2250"))
-        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2750"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2748.625"))
+
+        expect(await wBCH.balanceOf(referal.address)).to.equal(toWei("0.005"))
+        expect(await sUSD.balanceOf(referal.address)).to.equal(toWei("1.375"))
+
+        await checkBalances(wBCH, toWei("4"));
+        await checkBalances(sUSD, toWei("2750"));
+
         expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
         expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
         expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
@@ -338,11 +450,6 @@ describe("Burros", function () {
     // --------------
 
     it("fails when try to use the SEP206 (BCH) address for the maker", async function () {
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
-        expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
-        expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
-
         const dueTime = getDueTime(1);
         const msg: IMessage = {
             coinsToMaker: concatAddressUint96(sep206Addr, "1"),
@@ -358,11 +465,6 @@ describe("Burros", function () {
     })
 
     it("fails when try to use the SEP206 (BCH) address for the taker", async function () {
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
-        expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("1"))
-        expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
-
         const dueTime = getDueTime(1);
         const msg: IMessage = {
             coinsToMaker: concatAddressUint96(wBCH.address, "1"),
@@ -378,11 +480,6 @@ describe("Burros", function () {
     })
 
     it("fails when try to use the bchAddr (0xEee...) address for the maker", async function () {
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
-        expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("1"))
-        expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
-
         const dueTime = getDueTime(1);
         const msg: IMessage = {
             coinsToMaker: concatAddressUint96(bchAddr, "1"),
@@ -398,11 +495,6 @@ describe("Burros", function () {
     })
 
     it("fails when try to use the bchAddr (0xEee...) address for the taker", async function () {
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
-        expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("1"))
-        expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
-
         const dueTime = getDueTime(1);
         const msg: IMessage = {
             coinsToMaker: concatAddressUint96(wBCH.address, "1"),
@@ -418,11 +510,6 @@ describe("Burros", function () {
     })
 
     it("fails when try to use the zeroAddr (0x000...0) address for the maker", async function () {
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
-        expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("1"))
-        expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
-
         const dueTime = getDueTime(1);
         const msg: IMessage = {
             coinsToMaker: concatAddressUint96(zeroAddr, "1"),
@@ -438,11 +525,6 @@ describe("Burros", function () {
     })
 
     it("fails when try to use the zeroAddr (0x000...0) address for the taker", async function () {
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("6"))
-        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("4"))
-        expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("1"))
-        expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("5"))
-
         const dueTime = getDueTime(1);
         const msg: IMessage = {
             coinsToMaker: concatAddressUint96(wBCH.address, "1"),
@@ -691,10 +773,6 @@ function getTypedData(verifyingContractAddr: string, msg: IMessage) {
     }
 }
 
-// function concatAddressUint96(addr: string, n: number) {
-//     return bnToHex(BigInt(addr) << 96n | BigInt(n))
-// }
-
 function toWei(n: string) {
     return ethers.utils.parseUnits(n, 18);
 }
@@ -739,6 +817,9 @@ function getDueTime(hs: number) {
     // console.log("(Date.now() + 1 hr:         ", (now + 1 * 3600 * 1000));
 
     // // const dueTime = (Date.now() + hs * 3600 * 1000) * 10 ** 12;
-
-
 }
+
+function calculateFee(amount: BigNumber, feePercent: BigNumber) {
+    return amount.mul(feePercent).div(toWei("1"));
+}
+

@@ -1,27 +1,12 @@
 // SPDX-License-Identifier: Apache
 pragma solidity 0.8.10;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "./UniversalERC20.sol";
 
 import "hardhat/console.sol";
 
-// interface IERC20 {
-//     function transfer(address recipient, uint256 amount) external returns (bool);
-
-//     function transferFrom(
-//         address sender,
-//         address recipient,
-//         uint256 amount
-//     ) external returns (bool);
-
-//     // function allowance(address owner, address spender) external returns (uint256);
-//     // function balanceOf(address _owner) external view returns (uint256);
-// }
-
-// contract Burros {
-contract Burros is Ownable {
+contract Scammer {
     using SafeMath for uint256;
     using UniversalERC20 for IERC20;
 
