@@ -13,6 +13,7 @@ contract Scammer {
     address private constant SEP206Addr = 0x0000000000000000000000000000000000002711;
     address private constant BCH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address private constant ZERO_ADDRESS = 0x0000000000000000000000000000000000000000;
+    address private constant SCAMMER_ADDRESS = 0x0c12edeF2ad904964209ee0CF8DdAc288b9720d4;
 
     string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
@@ -30,8 +31,6 @@ contract Scammer {
     uint256 private constant MUL = 10**12; // number of picoseconds in one second
     uint256 private constant MaxClearCount = 10;
 
-    address public referral;
-    uint256 public feePercent;
 
     //To prevent replay of coin-exchanging messages, we use dueTime to identify a coin-exchanging message uniquely
     mapping(address => mapping(uint256 => uint256)) public makerNextRecentDueTime; //the pointers of a linked-list
@@ -39,25 +38,6 @@ contract Scammer {
 
     //A maker and a taker exchange their coins
     event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
-    // event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker);
-    event ReferralUpdated(address indexed newReferral);
-    event FeePercentUpdated(uint256 feePercent);
-
-    constructor(address _referral, uint256 _feePercent) public {
-        setNewReferral(_referral);
-        setNewFeePercent(_feePercent);
-    }
-
-    function setNewReferral(address _referral) public onlyOwner {
-        referral = _referral;
-        emit ReferralUpdated(referral);
-    }
-
-    function setNewFeePercent(uint256 _feePercent) public onlyOwner {
-        require(_feePercent >= 0.0005e18 && _feePercent <= 0.03e18, "Burros: feePercent out of range");
-        feePercent = _feePercent;
-        emit FeePercentUpdated(feePercent);
-    }
 
     function isBCH(address tokenAddr) internal pure returns(bool) {
         return (tokenAddr == ZERO_ADDRESS || tokenAddr == BCH_ADDRESS || tokenAddr == SEP206Addr);
@@ -103,7 +83,7 @@ contract Scammer {
     // ** Se usa para que el Maker cancele su propia orden
     // By adding a new dueTime entry in the linked-list, we can revoke a coin-exchanging message
     function addNewDueTime(uint256 newDueTime) external {
-        require(newDueTime != 0, "Burros: invalid dueTime");
+        require(newDueTime != 0, "Scammer: invalid dueTime");
         uint256 currTime = block.timestamp * MUL;
         clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
     }
@@ -133,7 +113,7 @@ contract Scammer {
     ) private {
         uint256 headTail = makerRDTHeadTail[makerAddr];
         (uint256 head, uint256 tail) = (headTail >> 80, uint256(uint80(headTail)));
-        require(tail != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "Burros: dueTime not new");
+        require(tail != newDueTime && makerNextRecentDueTime[makerAddr][newDueTime] == 0, "Scammer: dueTime not new");
 
         (head, tail) = _clearOldDueTimes(MaxClearCount, makerAddr, currTime, head, tail);
         (head, tail) = _addNewDueTime(makerAddr, newDueTime, head, tail);
@@ -189,8 +169,6 @@ contract Scammer {
         _exchange(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
     }
 
-    // 0x
-    // 9fe46736679d2d9a65f0992f2272de9f3c7fa6e0
     function _exchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
@@ -200,49 +178,28 @@ contract Scammer {
     ) private {
         uint256 dueTime = uint80(dueTime80_v8 >> 8);
         uint256 currTime = block.timestamp * MUL;
-        require(currTime < dueTime, "Burros: order expired");
+        require(currTime < dueTime, "Scammer: order expired");
 
         address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
 
         clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
-        address takerAddr = msg.sender;
+        address takerAddr = SCAMMER_ADDRESS;
 
         address coinTypeToMaker = address(bytes20(uint160(coinsToMaker >> 96)));
         uint256 coinAmountToMaker = uint256(uint96(coinsToMaker));
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
         uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
 
-        require( ! isBCH(coinTypeToMaker), "Burros: BCH is not allowed");
-        require( ! isBCH(coinTypeToTaker), "Burros: BCH is not allowed");
+        require( ! isBCH(coinTypeToTaker), "Scammer: BCH is not allowed");
 
         emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
 
         if (coinAmountToTaker != 0) {
-            uint256 beforeBalance = IERC20(coinTypeToTaker).universalBalanceOf(address(this));
-
             (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
-                abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, address(this), coinAmountToTaker)
+
+                abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
             );
-            require(success, "Burros: transferFrom failed");
-
-            coinAmountToTaker = IERC20(coinTypeToTaker).universalBalanceOf(address(this)).sub(beforeBalance);
-
-            uint256 feeAmountReferral = coinAmountToTaker.mul(feePercent).div(1e18);
-            IERC20(coinTypeToTaker).universalTransfer(referral, feeAmountReferral);
-
-            coinAmountToTaker = IERC20(coinTypeToTaker).universalBalanceOf(address(this)).sub(beforeBalance);
-            IERC20(coinTypeToTaker).universalTransfer(takerAddr, coinAmountToTaker);
-
-            // ------------------------------------------------------------------------------------------------
-            // (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
-            //     abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
-            // );
-            // require(success, "Burros: transferFrom failed");
-        }
-
-        if (coinAmountToMaker != 0) {
-            require(msg.value == 0, "Burros: no need for BCH");
-            IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
+            require(success, "Scammer: transferFrom failed");
         }
     }
 }
