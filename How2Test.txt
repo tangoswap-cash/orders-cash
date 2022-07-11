@@ -1,0 +1,9 @@
+How to Test
+
+Terminal 1:
+    nvm install --lts
+    npx hardhat node --fork https://smartbch.fountainhead.cash/mainnet:8545 --fork-block-number 639620 --port 9545
+
+Terminal 2:
+    nvm install --lts
+    npx truffle test

@@ -20,6 +20,8 @@ contract Burros is Ownable {
     address private constant BCH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address private constant ZERO_ADDRESS = 0x0000000000000000000000000000000000000000;
 
+    address private constant SMARTSWAP_ADDRESS = 0xEd2E356C00A555DDdd7663BDA822C6acB34Ce614;
+
     string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
     bytes32 private constant NAME_HASH = keccak256(abi.encodePacked("exchange dapp"));
@@ -186,7 +188,7 @@ contract Burros is Ownable {
 
     // TODO
     function smartExchange(
-        uint256 fromToken,
+        address fromToken,
         uint256 coinsToMaker,
         uint256 coinsToTaker,
         uint256 dueTime80_v8,
@@ -236,7 +238,7 @@ contract Burros is Ownable {
     }
 
     function _smartExchange(
-        uint256 fromToken,
+        address fromToken,
         uint256 coinsToMaker,
         uint256 coinsToTaker,
         uint256 dueTime80_v8,
@@ -263,11 +265,27 @@ contract Burros is Ownable {
         emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
 
         if (coinAmountToTaker != 0) {
-            (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
-                abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
+            // ---------------------------------------------------------------------
+            uint256 returnAmount;
+            uint256[] memory distribution;
+            (returnAmount, distribution) = ISmartSwap(SMARTSWAP_ADDRESS).getExpectedReturn(
+                IERC20(coinTypeToTaker),
+                IERC20(coinTypeToMaker),
+                coinAmountToTaker,
+                10,
+                0
             );
-            require(success, "Burros: transferFrom failed");
+            console.log("returnAmount: ");
+            console.log(returnAmount);
+
+
+            // ---------------------------------------------------------------------
+            // (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
+            //     abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
+            // );
+            // require(success, "Burros: transferFrom failed");
         }
+
 
         if (coinAmountToMaker != 0) {
             require(msg.value == 0, "Burros: no need for BCH");

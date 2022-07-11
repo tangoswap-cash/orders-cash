@@ -1,6 +1,20 @@
 import { ethers } from "hardhat"
+// import { ethers } from "ethers"
+
 import { expect } from "chai"
 import { BigNumber, Contract, Wallet } from "ethers"
+
+// // import { ethers } from "hardhat"
+// // import { ethers } = require("ethers");
+
+// // import { ethers } from "@nomiclabs/hardhat-ethers";
+// const { ethers } = require("@nomiclabs/hardhat-ethers");
+
+// // import { expect } from "chai"
+// const { expect } = require("chai");
+
+// // import { BigNumber, Contract, Wallet } from "ethers"
+// const { BigNumber, Contract, Wallet } = require("ethers");
 
 const { TypedDataUtils } = require("ethers-eip712")
 const { toUtf8Bytes } = require("ethers/lib/utils")
@@ -31,6 +45,9 @@ describe("Limit orders tests", function () {
     let scammer2Contract: Contract
     let wBCH: Contract
     let sUSD: Contract
+    let TANGO: Contract
+    let ARG: Contract
+    let KTH: Contract
     let sep206: Contract
 
     before(async function () {
@@ -64,7 +81,10 @@ describe("Limit orders tests", function () {
         const TestERC20 = await ethers.getContractFactory("TestERC20")
         wBCH = await TestERC20.deploy("wBCH", ethers.utils.parseUnits("10000000", 18), 18)
         sUSD = await TestERC20.deploy("sUSD", ethers.utils.parseUnits("10000000", 18), 18)
-        await Promise.all([wBCH.deployed(), sUSD.deployed()])
+        TANGO = await TestERC20.deploy("TANGO", ethers.utils.parseUnits("10000000", 18), 18)
+        ARG = await TestERC20.deploy("ARG", ethers.utils.parseUnits("10000000", 18), 18)
+        KTH = await TestERC20.deploy("KTH", ethers.utils.parseUnits("10000000", 18), 18)
+        await Promise.all([wBCH.deployed(), sUSD.deployed(), TANGO.deployed(), ARG.deployed(), KTH.deployed()])
     })
 
     // ----------------------------------------------------------------------------------------------------------------
@@ -168,7 +188,49 @@ describe("Limit orders tests", function () {
         expect(await wBCH.balanceOf(scammerWallet.address)).to.equal(toWei("10"))
         expect(await sUSD.balanceOf(scammerWallet.address)).to.equal(toWei("5000"))
     })
+
     // ----------------------------------------------------------------------------------------------------------------
+
+    it.only("TODO smartExchange", async function () {
+        await wBCH.transfer(maker.address, toWei("10"))
+        await sUSD.transfer(taker.address, toWei("5000"))
+        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("10"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("5000"))
+        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+
+        const dueTime = getDueTime(1);
+
+        const msg: IMessage = {
+            coinsToMaker: concatAddressUint96(sUSD.address, "500"),
+            coinsToTaker: concatAddressUint96(wBCH.address, "1"),
+            dueTime80: dueTime,
+        }
+
+        // https://bitcoin.stackexchange.com/questions/38351/ecdsa-v-r-s-what-is-v
+        const [r, s, v] = signRawMsg(exchange.address, msg, maker)
+        // console.log('rsv:', r, s, v);
+
+        await wBCH.connect(maker).approve(exchange.address, toWei("1"))
+        await sUSD.connect(taker).approve(exchange.address, toWei("500"))
+
+        const ret = smartExch(exchange.connect(taker), TANGO, msg, r, s, v, undefined);
+        const retAw = await ret;
+
+        await expect(ret)
+            .to.emit(exchange, "Exchange")
+            .withArgs(maker.address, taker.address, sUSD.address, toWei("500"), wBCH.address, toWei("1"), dueTime) //TODO
+
+        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("9"))
+        expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("1"))
+        expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("500"))
+        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("4500"))
+        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+    })
+
+    // ----------------------------------------------------------------------------------------------------------------
+
 
     it("makes a wBCH -> sUSD order and then it taken properly", async function () {
         await wBCH.transfer(maker.address, toWei("10"))
@@ -532,6 +594,12 @@ function getSigner(exchange: Contract, msg: IMessage, r: string, s: string, v: n
 
 function exch(exchange: Contract, msg: IMessage, r: string, s: string, v: number, bchAmount: BigNumber | number | undefined) {
     return exchange.directExchange(msg.coinsToMaker, msg.coinsToTaker, bnToHex((BigInt(msg.dueTime80) << 8n) | BigInt(v)), r, s, {
+        value: bchAmount || 0,
+    })
+}
+
+function smartExch(exchange: Contract, from: Contract, msg: IMessage, r: string, s: string, v: number, bchAmount: BigNumber | number | undefined) {
+    return exchange.smartExchange(from.address, msg.coinsToMaker, msg.coinsToTaker, bnToHex((BigInt(msg.dueTime80) << 8n) | BigInt(v)), r, s, {
         value: bchAmount || 0,
     })
 }
