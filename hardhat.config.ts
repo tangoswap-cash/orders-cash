@@ -8,10 +8,11 @@ import "hardhat-deploy"
 import "hardhat-deploy-ethers"
 import "hardhat-gas-reporter"
 import "hardhat-spdx-license-identifier"
-import "hardhat-typechain"
+// import "hardhat-typechain"
 import "hardhat-watcher"
 import "solidity-coverage"
 // import "./tasks"
+import "@typechain/hardhat"
 
 import { HardhatUserConfig } from "hardhat/types"
 import { removeConsoleLog } from "hardhat-preprocessor"
@@ -62,40 +63,45 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    localhost: {
-      live: false,
-      saveDeployments: true,
-      tags: ["local"],
-    },
+    // localhost: {
+    //   live: false,
+    //   saveDeployments: true,
+    //   tags: ["local"],
+    // },
     hardhat: {
       forking: {
-        enabled: process.env.FORKING === "true",
+        enabled: true, //process.env.FORKING === "true",
         url: `https://smartbch.fountainhead.cash/mainnet`,
-        blockNumber: 639620,
+        // url: `https://smartbch.greyh.at`,
+        // blockNumber: 639620,
+        blockNumber: 5320762,
+        // gasPrice: 1000000000, // web3.eth.gasPrice
       },
       live: false,
       saveDeployments: true,
       tags: ["test", "local"],
-    },
-    smartbch: {
-      url: "https://smartbch.fountainhead.cash/mainnet",
-      // url: "https://smartbch.greyh.at",
-      // accounts: privateKeys,
       chainId: 10000,
-      live: true,
-      saveDeployments: true,
-      gasMultiplier: 2,
+      gasPrice: 1050000000,
     },
-    "smartbch-amber": {
-      url: "http://35.220.203.194:8545",
-      // url: "https://moeing.tech:9545",
-      // accounts: privateKeys,
-      chainId: 10001,
-      live: true,
-      saveDeployments: true,
-      tags: ["staging"],
-      gasMultiplier: 2,
-    },
+    // smartbch: {
+    //   url: "https://smartbch.fountainhead.cash/mainnet",
+    //   // url: "https://smartbch.greyh.at",
+    //   // accounts: privateKeys,
+    //   chainId: 10000,
+    //   live: true,
+    //   saveDeployments: true,
+    //   gasMultiplier: 2,
+    // },
+    // "smartbch-amber": {
+    //   url: "http://35.220.203.194:8545",
+    //   // url: "https://moeing.tech:9545",
+    //   // accounts: privateKeys,
+    //   chainId: 10001,
+    //   live: true,
+    //   saveDeployments: true,
+    //   tags: ["staging"],
+    //   gasMultiplier: 2,
+    // },
   },
   paths: {
     artifacts: "artifacts",

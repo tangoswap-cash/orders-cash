@@ -1,20 +1,6 @@
 import { ethers } from "hardhat"
-// import { ethers } from "ethers"
-
 import { expect } from "chai"
 import { BigNumber, Contract, Wallet } from "ethers"
-
-// // import { ethers } from "hardhat"
-// // import { ethers } = require("ethers");
-
-// // import { ethers } from "@nomiclabs/hardhat-ethers";
-// const { ethers } = require("@nomiclabs/hardhat-ethers");
-
-// // import { expect } from "chai"
-// const { expect } = require("chai");
-
-// // import { BigNumber, Contract, Wallet } from "ethers"
-// const { BigNumber, Contract, Wallet } = require("ethers");
 
 const { TypedDataUtils } = require("ethers-eip712")
 const { toUtf8Bytes } = require("ethers/lib/utils")
@@ -24,10 +10,27 @@ const sep206Addr = "0x0000000000000000000000000000000000002711";
 const bchAddr = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const zeroAddr = "0x0000000000000000000000000000000000000000";
 
+const BCHAddress = '0x0000000000000000000000000000000000000000';
+
 const erc20ABI = [
     `function balanceOf(address owner) external view returns (uint)`,
     `function allowance(address owner, address spender) external view returns (uint)`,
     `function approve(address spender, uint value) external returns (bool)`,
+    `function transfer(address to, uint256 amount) external returns (bool)`,
+]
+
+const IWETHABI = [
+    // `function balanceOf(address owner) external view returns (uint)`,
+    // `function allowance(address owner, address spender) external view returns (uint)`,
+    // `function approve(address spender, uint value) external returns (bool)`,
+    // `function transfer(address to, uint256 amount) external returns (bool)`,
+    ...erc20ABI,
+    `function deposit() external payable`,
+    `function withdraw(uint256 amount) external`,
+]
+
+const ISmartSwapABI = [
+    `function getExpectedReturn(address fromToken,address destToken,uint256 amount,uint256 parts,uint256 flags) external view returns(uint256 returnAmount, uint256[] memory distribution)`,
 ]
 
 export interface IMessage {
@@ -37,22 +40,31 @@ export interface IMessage {
 }
 
 describe("Limit orders tests", function () {
+    this.timeout(30000000);
     let maker: Wallet
     let taker: Wallet
     let scammerWallet: Wallet
     let exchange: Contract
     let scammerContract: Contract
     let scammer2Contract: Contract
+
     let wBCH: Contract
     let sUSD: Contract
     let TANGO: Contract
     let ARG: Contract
     let KTH: Contract
+
     let sep206: Contract
+    let smartSwap: Contract
+
+    let BCH = {address: zeroAddr};
 
     before(async function () {
         const [acc0] = await ethers.getSigners()
         sep206 = new ethers.Contract(sep206Addr, erc20ABI, acc0.provider)
+        smartSwap = new ethers.Contract("0xEd2E356C00A555DDdd7663BDA822C6acB34Ce614", ISmartSwapABI, acc0.provider)
+        // console.log("smartSwap: ", smartSwap);
+
         maker = new ethers.Wallet("82c149d8f7257a6ab690d351d482de51e3540a95859a72a96ef5d744e1f69d60", acc0.provider)
         taker = new ethers.Wallet("f37a49a536c941829424a502bb4579f2ab5451c7104c8541e7797798f3daf4ec", acc0.provider)
         scammerWallet = new ethers.Wallet("9d6082c136c941829424a502bb4579f2ab5451c7104c8541e7797798f3daf4ec", acc0.provider)
@@ -78,13 +90,26 @@ describe("Limit orders tests", function () {
         scammer2Contract = await Scammer2.deploy()
         await scammer2Contract.deployed()
 
-        const TestERC20 = await ethers.getContractFactory("TestERC20")
-        wBCH = await TestERC20.deploy("wBCH", ethers.utils.parseUnits("10000000", 18), 18)
-        sUSD = await TestERC20.deploy("sUSD", ethers.utils.parseUnits("10000000", 18), 18)
-        TANGO = await TestERC20.deploy("TANGO", ethers.utils.parseUnits("10000000", 18), 18)
-        ARG = await TestERC20.deploy("ARG", ethers.utils.parseUnits("10000000", 18), 18)
-        KTH = await TestERC20.deploy("KTH", ethers.utils.parseUnits("10000000", 18), 18)
-        await Promise.all([wBCH.deployed(), sUSD.deployed(), TANGO.deployed(), ARG.deployed(), KTH.deployed()])
+        // const TestERC20 = await ethers.getContractFactory("TestERC20")
+        // wBCH = await TestERC20.deploy("wBCH", ethers.utils.parseUnits("10000000", 18), 18)
+        // sUSD = await TestERC20.deploy("sUSD", ethers.utils.parseUnits("10000000", 18), 18)
+        // TANGO = await TestERC20.deploy("TANGO", ethers.utils.parseUnits("10000000", 18), 18)
+        // ARG = await TestERC20.deploy("ARG", ethers.utils.parseUnits("10000000", 18), 18)
+        // KTH = await TestERC20.deploy("KTH", ethers.utils.parseUnits("10000000", 18), 18)
+        // await Promise.all([wBCH.deployed(), sUSD.deployed(), TANGO.deployed(), ARG.deployed(), KTH.deployed()])
+
+        // BCH      = {address: zeroAddr};
+        // this.WBCH     = new web3.eth.Contract(ERC20_ABI, );
+        // this.FlexUSD  = new web3.eth.Contract(ERC20_ABI, '');
+
+        wBCH = new ethers.Contract('0x3743eC0673453E5009310C727Ba4eaF7b3a1cc04', IWETHABI, acc0.provider)
+        sUSD = new ethers.Contract('0x7b2B3C5308ab5b2a1d9a94d20D35CCDf61e05b72', erc20ABI, acc0.provider)
+        TANGO = new ethers.Contract('0x73BE9c8Edf5e951c9a0762EA2b1DE8c8F38B5e91', erc20ABI, acc0.provider)
+        ARG = new ethers.Contract('0x675E1d6FcE8C7cC091aED06A68D079489450338a', erc20ABI, acc0.provider)
+        KTH = new ethers.Contract('0xc70c7718C7f1CCd906534C2c4a76914173EC2c44', erc20ABI, acc0.provider)
+        // await Promise.all([wBCH.deployed(), sUSD.deployed(), TANGO.deployed(), ARG.deployed(), KTH.deployed()])
+
+
     })
 
     // ----------------------------------------------------------------------------------------------------------------
@@ -191,13 +216,43 @@ describe("Limit orders tests", function () {
 
     // ----------------------------------------------------------------------------------------------------------------
 
+    // it.only('should getExpectedReturn with BCH => flexUSD', async function () {
+    //     // console.log("smartSwap: ", smartSwap);
+    //     // console.log("smartSwap: ", this.smartSwap);
+
+    //     console.log("BCH: ", BCH);
+    //     console.log("BCH: ", BCH.address);
+    //     console.log("sUSD: ", sUSD.address);
+
+    //     expect(1).to.equal(1)
+    //     const res = await smartSwap.getExpectedReturn(
+    //         BCH.address,
+    //         sUSD.address,
+    //         toWei("1"),
+    //         10,
+    //         0
+    //     );
+
+    //     // console.log('res:', res);
+    //     console.log('returnAmount:', res.returnAmount.toString());
+
+
+    //     // printDistribution(res.distribution, 10);
+
+    //     // console.log('Swap: 1 BCH');
+    //     // console.log('returnAmount:', res.returnAmount.toString() / 1e8 + ' flexUSD');
+    //     // console.log('distribution:', res.distribution.map(a => a.toString()));
+    //     // console.log('raw:', res.returnAmount.toString());
+    //     // expect(res.returnAmount).to.be.bignumber.least('100000000000000000000'); // 1 BCH >= 100 flexUSD
+    // });
+
     it.only("TODO smartExchange", async function () {
-        await wBCH.transfer(maker.address, toWei("10"))
-        await sUSD.transfer(taker.address, toWei("5000"))
-        expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("10"))
-        expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("5000"))
-        expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
-        expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+        // await wBCH.transfer(maker.address, toWei("10"))
+        // await sUSD.transfer(taker.address, toWei("5000"))
+        // expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("10"))
+        // expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("5000"))
+        // expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
+        // expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
 
         const dueTime = getDueTime(1);
 

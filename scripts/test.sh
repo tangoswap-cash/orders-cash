@@ -70,7 +70,6 @@ if [ "$SOLIDITY_COVERAGE" = true ]; then
         cat coverage/lcov.info | node_modules/.bin/coveralls
     fi
 else
-    # yarn truffle test --stacktrace "$@"
+    yarn truffle test --stacktrace "$@"
     # yarn truffle test-truffle --stacktrace "$@"
-
 fi

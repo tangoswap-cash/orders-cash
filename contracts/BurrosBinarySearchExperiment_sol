@@ -44,7 +44,6 @@ contract Burros is Ownable {
 
     //A maker and a taker exchange their coins
     event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
-    event SmartExchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, address fromToken, uint256 fromTokenAmount, uint256 dueTime80);
 
     event SmartSwapFeePercentUpdated(uint256 feePercent);
 
@@ -192,17 +191,16 @@ contract Burros is Ownable {
         _directExchange(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
     }
 
-    // TODO: function summary
+    // TODO
     function smartExchange(
         address fromToken,
-        uint256 fromTokenAmount,
         uint256 coinsToMaker,
         uint256 coinsToTaker,
         uint256 dueTime80_v8,
         bytes32 r,
         bytes32 s
     ) external payable {
-        _smartExchange(fromToken, fromTokenAmount, coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
+        _smartExchange(fromToken, coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
     }
 
     function _directExchange(
@@ -244,67 +242,181 @@ contract Burros is Ownable {
         }
     }
 
+    // template<class ForwardIt, class T>
+    // ForwardIt lower_bound(ForwardIt first, ForwardIt last, const T& value)
+    // {
+    //     ForwardIt it;
+    //     typename std::iterator_traits<ForwardIt>::difference_type count, step;
+    //     count = std::distance(first, last);
+
+    //     while (count > 0) {
+    //         it = first;
+    //         step = count / 2;
+    //         std::advance(it, step);
+    //         if (*it < value) {
+    //             first = ++it;
+    //             count -= step + 1;
+    //         }
+    //         else
+    //             count = step;
+    //     }
+    //     return first;
+    // }
+
+
+    // function smartBCH() internal pure returns(uint256) {
+    //     return ISmartSwapRewarder(SMARTSWAP_ADDRESS);
+    // }
+
+    // function lower_bound(IERC20 fromToken, IERC20 toToken, uint256 first, uint256 last, uint256 value) internal pure returns(uint256) {
+    //     // ForwardIt it;
+    //     // typename std::iterator_traits<ForwardIt>::difference_type count, step;
+    //     uint256 it;
+    //     uint256 diff = last - first;
+
+    //     while (diff > 0) {
+    //         it = first;
+    //         step = diff / 2;
+    //         it += step;
+
+    //         uint256 returnAmount;
+    //         uint256[] memory distribution;
+    //         (returnAmount, distribution) = smartBCH().getExpectedReturn(
+    //             fromToken,
+    //             toToken,
+    //             it,
+    //             10,
+    //             0
+    //         );
+    //         console.log("lower_bound returnAmount: ");
+    //         console.log(returnAmount);
+
+
+    //         if (*it < value) {
+    //             first = ++it;
+    //             diff -= step + 1;
+    //         } else {
+    //             diff = step;
+    //         }
+    //     }
+    //     return first;
+    // }
+
+    // function partition_point_n(f, n, p) {
+    //     while (n != 0) {
+    //         var h = half_nonnegative(n);
+    //         var m = successor(f, h);
+
+    //         if (p(source(m))) {
+    //             n = h;
+    //         } else {
+    //             n -= h + 1;
+    //             f = successor(m);
+    //         }
+    //     }
+    //     return f;
+    // }
+
+
+    function lowerBound(IERC20 fromToken, IERC20 toToken, uint256 first, uint256 last, uint256 value) internal view returns(uint256) {
+        // ForwardIt it;
+        // typename std::iterator_traits<ForwardIt>::difference_type count, step;
+        uint256 diff = last - first;
+
+        while (diff > 0) {
+            uint256 half = diff / 2;
+            // it += half;
+            uint256 it = first + half;
+
+            uint256 returnAmount;
+            uint256[] memory distribution;
+            (returnAmount, distribution) = smartBCH().getExpectedReturn(
+                fromToken,
+                toToken,
+                it,
+                10,
+                0
+            );
+            console.log("lowerBound returnAmount: ");
+            console.log(returnAmount);
+
+            if (returnAmount < value) {
+                first = it; //++it;
+                diff -= half;   //half + 1;
+            } else {
+                diff = half;
+            }
+        }
+        return first;
+    }
     function _smartExchange(
         address fromToken,
-        uint256 fromTokenAmount,
         uint256 coinsToMaker,
         uint256 coinsToTaker,
         uint256 dueTime80_v8,
         bytes32 r,
         bytes32 s
     ) private {
+        uint256 dueTime = uint80(dueTime80_v8 >> 8);
+        uint256 currTime = block.timestamp * MUL;
+        require(currTime < dueTime, "Burros: order expired");
+
         address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
 
-        uint256 dueTime;
-        {
-            dueTime = uint80(dueTime80_v8 >> 8);
-            uint256 currTime = block.timestamp * MUL;
-            require(currTime < dueTime, "Burros: order expired");
-            clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
-        }
-        // address takerAddr = msg.sender;
-
-        // address coinTypeToMaker = address(bytes20(uint160(coinsToMaker >> 96)));
-        // uint256 coinAmountToMaker = uint256(uint96(coinsToMaker));
-        // address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
-        // uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
+        clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
+        address takerAddr = msg.sender;
 
         address coinTypeToMaker = address(bytes20(uint160(coinsToMaker >> 96)));
-        coinsToMaker = uint256(uint96(coinsToMaker));   // coinAmountToMaker
+        uint256 coinAmountToMaker = uint256(uint96(coinsToMaker));
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
-        coinsToTaker = uint256(uint96(coinsToTaker)); // coinAmountToTaker
-
+        uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
 
         require( ! isBCH(coinTypeToMaker), "Burros: BCH is not allowed");
-        // require( ! isBCH(coinTypeToTaker), "Burros: BCH is not allowed");
+        require( ! isBCH(coinTypeToTaker), "Burros: BCH is not allowed");
 
-        // emit SmartExchange(makerAddr, msg.sender, coinTypeToMaker, coinsToMaker, coinTypeToTaker, coinsToTaker, fromToken, fromTokenAmount, dueTime);
-        // emit SmartExchange(makerAddr, msg.sender, coinTypeToMaker, coinsToMaker, coinTypeToTaker, coinsToTaker, fromToken, fromTokenAmount, dueTime);
-        emit Exchange(makerAddr, msg.sender, coinTypeToMaker, coinsToMaker, coinTypeToTaker, coinsToTaker, dueTime);
+        emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
 
-        // if (coinsToTaker != 0) {
-        //     (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
-        //         abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, msg.sender, coinsToTaker)
-        //     );
-        //     require(success, "Burros: transferFrom failed");
-        // }
+        if (coinAmountToTaker != 0) {
+            // uint256 returnAmount0;
+            // uint256[] memory distribution;
+            // (returnAmount0, distribution) = smartBCH().getExpectedReturn(
+            //     IERC20(coinTypeToTaker),
+            //     IERC20(coinTypeToMaker),
+            //     coinAmountToTaker,
+            //     10,
+            //     0
+            // );
+            // console.log("returnAmount0: ");
+            // console.log(returnAmount0);
 
-        if (coinsToMaker != 0) {
-            require(msg.value == 0, "Burros: no need for BCH");
+            // uint256 returnAmount1;
+            // (returnAmount1, distribution) = smartBCH().getExpectedReturn(
+            //     IERC20(coinTypeToTaker),
+            //     IERC20(coinTypeToMaker),
+            //     coinAmountToTaker,
+            //     10,
+            //     0
+            // );
+            // console.log("returnAmount1: ");
+            // console.log(returnAmount1);
 
-            uint256 returnAmount;
-            uint256[] memory distribution;
-            (returnAmount, distribution) = smartBCH().getExpectedReturn(
-                IERC20(fromToken),
-                IERC20(coinTypeToMaker),
-                fromTokenAmount,
-                10,
-                0
-            );
-            console.log("returnAmount: ");
-            console.log(returnAmount);
+            uint256 fromBalance = IERC20(fromToken).balanceOf(takerAddr);
+            console.log("fromBalance: ");
+            console.log(fromBalance);
 
-            // IERC20(coinTypeToMaker).transferFrom(msg.sender, makerAddr, coinsToMaker);
+            uint256 xxx = lowerBound(IERC20(fromToken), IERC20(coinTypeToMaker), 0, fromBalance, uint256 value) internal view returns(uint256) {
+
+            // ---------------------------------------------------------------------
+            // (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
+            //     abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
+            // );
+            // require(success, "Burros: transferFrom failed");
         }
+
+
+        // if (coinAmountToMaker != 0) {
+        //     require(msg.value == 0, "Burros: no need for BCH");
+        //     IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
+        // }
     }
 }
