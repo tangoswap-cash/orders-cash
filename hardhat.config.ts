@@ -70,12 +70,9 @@ const config: HardhatUserConfig = {
     // },
     hardhat: {
       forking: {
-        enabled: true, //process.env.FORKING === "true",
+        // enabled: process.env.FORKING === "true",
+        enabled: false,
         url: `https://smartbch.fountainhead.cash/mainnet`,
-        // url: `https://smartbch.greyh.at`,
-        // blockNumber: 639620,
-        blockNumber: 5320762,
-        // gasPrice: 1000000000, // web3.eth.gasPrice
       },
       live: false,
       saveDeployments: true,
@@ -83,15 +80,50 @@ const config: HardhatUserConfig = {
       chainId: 10000,
       gasPrice: 1050000000,
     },
-    // smartbch: {
-    //   url: "https://smartbch.fountainhead.cash/mainnet",
-    //   // url: "https://smartbch.greyh.at",
-    //   // accounts: privateKeys,
-    //   chainId: 10000,
-    //   live: true,
+
+    forked: {
+      forking: {
+        enabled: true, //process.env.FORKING === "true",
+        // enabled: process.env.FORKING === "true",
+        url: `https://smartbch.fountainhead.cash/mainnet`,
+        // url: `https://smartbch.greyh.at`,
+        // blockNumber: 639620,
+        blockNumber: 5320762,
+        // gasPrice: 1000000000, // web3.eth.gasPrice
+      },
+      url: `https://smartbch.fountainhead.cash/mainnet`,
+      live: false,
+      saveDeployments: true,
+      tags: ["forked"],
+      chainId: 10000,
+      gasPrice: 1050000000,
+    },
+
+    // development: {
+    //   forking: {
+    //     enabled: false,
+    //     url: `https://smartbch.fountainhead.cash/mainnet`,
+    //     // url: `https://smartbch.greyh.at`,
+    //     // blockNumber: 639620,
+    //     blockNumber: 5320762,
+    //     // gasPrice: 1000000000, // web3.eth.gasPrice
+    //   },
+    //   live: false,
     //   saveDeployments: true,
-    //   gasMultiplier: 2,
+    //   tags: ["test", "local"],
+    //   chainId: 10000,
+    //   gasPrice: 1050000000,
     // },
+
+    smartbch: {
+      url: "https://smartbch.fountainhead.cash/mainnet",
+      // url: "https://smartbch.greyh.at",
+      // accounts: privateKeys,
+      chainId: 10000,
+      live: true,
+      saveDeployments: true,
+      gasMultiplier: 2,
+    },
     // "smartbch-amber": {
     //   url: "http://35.220.203.194:8545",
     //   // url: "https://moeing.tech:9545",

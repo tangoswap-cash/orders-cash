@@ -59,12 +59,12 @@ contract Scammer {
     function getSigner(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 dueTime80_v8,
+        uint256 dueTime80_v8_version8,
         bytes32 r,
         bytes32 s
     ) public view returns (address) {
-        bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, dueTime80_v8 >> 8);
-        uint8 v = uint8(dueTime80_v8); //the lowest byte is v
+        bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, dueTime80_v8_version8 >> 16);
+        uint8 v = uint8(dueTime80_v8_version8 >> 8);
         return ecrecover(eip712Hash, v, r, s);
     }
 
@@ -162,25 +162,25 @@ contract Scammer {
     function directExchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 dueTime80_v8,
+        uint256 dueTime80_v8_version8,
         bytes32 r,
         bytes32 s
     ) external payable {
-        _exchange(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
+        _exchange(coinsToMaker, coinsToTaker, dueTime80_v8_version8, r, s);
     }
 
     function _exchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 dueTime80_v8,
+        uint256 dueTime80_v8_version8,
         bytes32 r,
         bytes32 s
     ) private {
-        uint256 dueTime = uint80(dueTime80_v8 >> 8);
+        uint256 dueTime = uint80(dueTime80_v8_version8 >> 16);
         uint256 currTime = block.timestamp * MUL;
         require(currTime < dueTime, "Scammer: order expired");
 
-        address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
+        address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8_version8, r, s);
 
         clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
         address takerAddr = SCAMMER_ADDRESS;

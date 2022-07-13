@@ -9,10 +9,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "hardhat/console.sol";
 
-interface ISmartSwapRewarder {
-    function getExpectedReturn(IERC20 fromToken,IERC20 destToken,uint256 amount,uint256 parts,uint256 flags) external view returns(uint256 returnAmount, uint256[] memory distribution);
-}
-
 contract Burros is Ownable {
     // using SafeMath for uint256;
     // using UniversalERC20 for IERC20;
@@ -21,14 +17,13 @@ contract Burros is Ownable {
     address private constant BCH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address private constant ZERO_ADDRESS = 0x0000000000000000000000000000000000000000;
 
-    address private constant SMARTSWAP_ADDRESS = 0xEd2E356C00A555DDdd7663BDA822C6acB34Ce614;
-
     string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
     bytes32 private constant NAME_HASH = keccak256(abi.encodePacked("exchange dapp"));
     bytes32 private constant VERSION_HASH = keccak256(abi.encodePacked("v0.1.0"));
     uint256 private constant CHAINID = 10000; // smartBCH mainnet
     bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
+    uint8 private constant VERSION = 1;
 
     bytes32 private constant TYPE_HASH =
         keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 dueTime80)"));
@@ -36,31 +31,13 @@ contract Burros is Ownable {
     uint256 private constant MUL = 10**12; // number of picoseconds in one second
     uint256 private constant MaxClearCount = 10;
 
-    uint256 public smartSwapFeePercent;
-
     //To prevent replay of coin-exchanging messages, we use dueTime to identify a coin-exchanging message uniquely
     mapping(address => mapping(uint256 => uint256)) public makerNextRecentDueTime; //the pointers of a linked-list
     mapping(address => uint256) public makerRDTHeadTail; //the head and tail of a linked-list
 
     //A maker and a taker exchange their coins
     event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
-    event SmartExchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, address fromToken, uint256 fromTokenAmount, uint256 dueTime80);
-
-    event SmartSwapFeePercentUpdated(uint256 feePercent);
-
-    constructor(uint256 _feePercent) public {
-        setSmartSwapFeePercent(_feePercent);
-    }
-
-    function setSmartSwapFeePercent(uint256 _feePercent) public onlyOwner {
-        require(_feePercent >= 0 && _feePercent <= 0.03e18, "Burros: SmartSwap feePercent out of range");
-        smartSwapFeePercent = _feePercent;
-        emit SmartSwapFeePercentUpdated(_feePercent);
-    }
-
-    function smartBCH() internal pure returns(ISmartSwapRewarder) {
-        return ISmartSwapRewarder(SMARTSWAP_ADDRESS);
-    }
+    event NewDueTime(address indexed maker, uint256 newDueTime, uint256 currTime);
 
     function isBCH(address tokenAddr) internal pure returns(bool) {
         return (tokenAddr == ZERO_ADDRESS || tokenAddr == BCH_ADDRESS || tokenAddr == SEP206Addr);
@@ -82,12 +59,12 @@ contract Burros is Ownable {
     function getSigner(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 dueTime80_v8,
+        uint256 dueTime80_v8_version8,
         bytes32 r,
         bytes32 s
     ) public view returns (address) {
-        bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, dueTime80_v8 >> 8);
-        uint8 v = uint8(dueTime80_v8); //the lowest byte is v
+        bytes32 eip712Hash = getEIP712Hash(coinsToMaker, coinsToTaker, dueTime80_v8_version8 >> 16);
+        uint8 v = uint8(dueTime80_v8_version8 >> 8);
         return ecrecover(eip712Hash, v, r, s);
     }
 
@@ -109,6 +86,7 @@ contract Burros is Ownable {
         require(newDueTime != 0, "Burros: invalid dueTime");
         uint256 currTime = block.timestamp * MUL;
         clearOldDueTimesAndInsertNew(msg.sender, newDueTime, currTime);
+        emit NewDueTime(msg.sender, newDueTime, currTime);
     }
 
     // ** No encuentro uso
@@ -185,38 +163,32 @@ contract Burros is Ownable {
     function directExchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 dueTime80_v8,
+        uint256 dueTime80_v8_version8,
         bytes32 r,
         bytes32 s
     ) external payable {
-        _directExchange(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
-    }
-
-    // TODO: function summary
-    function smartExchange(
-        address fromToken,
-        uint256 fromTokenAmount,
-        uint256 coinsToMaker,
-        uint256 coinsToTaker,
-        uint256 dueTime80_v8,
-        bytes32 r,
-        bytes32 s
-    ) external payable {
-        _smartExchange(fromToken, fromTokenAmount, coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
+        _directExchange(coinsToMaker, coinsToTaker, dueTime80_v8_version8, r, s);
     }
 
     function _directExchange(
         uint256 coinsToMaker,
         uint256 coinsToTaker,
-        uint256 dueTime80_v8,
+        uint256 dueTime80_v8_version8,
         bytes32 r,
         bytes32 s
     ) private {
-        uint256 dueTime = uint80(dueTime80_v8 >> 8);
+        uint256 dueTime = uint80(dueTime80_v8_version8 >> 16);
         uint256 currTime = block.timestamp * MUL;
         require(currTime < dueTime, "Burros: order expired");
 
-        address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
+        require(uint8(dueTime80_v8_version8) == VERSION, "Burros: version does not match");
+
+        // console.log("currTime: ");
+        // console.log(currTime);
+        // console.log("dueTime:  ");
+        // console.log(dueTime);
+
+        address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8_version8, r, s);
 
         clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
         address takerAddr = msg.sender;
@@ -241,70 +213,6 @@ contract Burros is Ownable {
         if (coinAmountToMaker != 0) {
             require(msg.value == 0, "Burros: no need for BCH");
             IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
-        }
-    }
-
-    function _smartExchange(
-        address fromToken,
-        uint256 fromTokenAmount,
-        uint256 coinsToMaker,
-        uint256 coinsToTaker,
-        uint256 dueTime80_v8,
-        bytes32 r,
-        bytes32 s
-    ) private {
-        address makerAddr = getSigner(coinsToMaker, coinsToTaker, dueTime80_v8, r, s);
-
-        uint256 dueTime;
-        {
-            dueTime = uint80(dueTime80_v8 >> 8);
-            uint256 currTime = block.timestamp * MUL;
-            require(currTime < dueTime, "Burros: order expired");
-            clearOldDueTimesAndInsertNew(makerAddr, dueTime, currTime);
-        }
-        // address takerAddr = msg.sender;
-
-        // address coinTypeToMaker = address(bytes20(uint160(coinsToMaker >> 96)));
-        // uint256 coinAmountToMaker = uint256(uint96(coinsToMaker));
-        // address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
-        // uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
-
-        address coinTypeToMaker = address(bytes20(uint160(coinsToMaker >> 96)));
-        coinsToMaker = uint256(uint96(coinsToMaker));   // coinAmountToMaker
-        address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
-        coinsToTaker = uint256(uint96(coinsToTaker)); // coinAmountToTaker
-
-
-        require( ! isBCH(coinTypeToMaker), "Burros: BCH is not allowed");
-        // require( ! isBCH(coinTypeToTaker), "Burros: BCH is not allowed");
-
-        // emit SmartExchange(makerAddr, msg.sender, coinTypeToMaker, coinsToMaker, coinTypeToTaker, coinsToTaker, fromToken, fromTokenAmount, dueTime);
-        // emit SmartExchange(makerAddr, msg.sender, coinTypeToMaker, coinsToMaker, coinTypeToTaker, coinsToTaker, fromToken, fromTokenAmount, dueTime);
-        emit Exchange(makerAddr, msg.sender, coinTypeToMaker, coinsToMaker, coinTypeToTaker, coinsToTaker, dueTime);
-
-        // if (coinsToTaker != 0) {
-        //     (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
-        //         abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, msg.sender, coinsToTaker)
-        //     );
-        //     require(success, "Burros: transferFrom failed");
-        // }
-
-        if (coinsToMaker != 0) {
-            require(msg.value == 0, "Burros: no need for BCH");
-
-            uint256 returnAmount;
-            uint256[] memory distribution;
-            (returnAmount, distribution) = smartBCH().getExpectedReturn(
-                IERC20(fromToken),
-                IERC20(coinTypeToMaker),
-                fromTokenAmount,
-                10,
-                0
-            );
-            console.log("returnAmount: ");
-            console.log(returnAmount);
-
-            // IERC20(coinTypeToMaker).transferFrom(msg.sender, makerAddr, coinsToMaker);
         }
     }
 }
