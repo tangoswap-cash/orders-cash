@@ -67,7 +67,7 @@ describe("Limit orders without SmartSwap tests", function () {
             value: ethers.utils.parseEther("30.0"),
         })
 
-        const Exchange = await ethers.getContractFactory("Burros")
+        const Exchange = await ethers.getContractFactory("OrdersCashV1")
         exchange = await Exchange.deploy()
         await exchange.deployed()
 
@@ -245,7 +245,7 @@ describe("Limit orders without SmartSwap tests", function () {
 
         const [r, s, v] = signRawMsg(exchange.address, msg, maker)
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, undefined))
-            .to.be.revertedWith("Burros: order expired")
+            .to.be.revertedWith("OrdersCashV1: order expired")
     })
 
     it("fails when the maker allowance is not enough", async function () {
@@ -262,7 +262,7 @@ describe("Limit orders without SmartSwap tests", function () {
 
         const [r, s, v] = signRawMsg(exchange.address, msg, maker)
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, undefined))
-            .to.be.revertedWith("Burros: transferFrom fail")
+            .to.be.revertedWith("OrdersCashV1: transferFrom fail")
     })
 
     it("fails when the maker balance is not enough", async function () {
@@ -285,7 +285,7 @@ describe("Limit orders without SmartSwap tests", function () {
         expect(await sUSD.allowance(taker.address, exchange.address)).to.equal(toWei("4500"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, undefined))
-            .to.be.revertedWith("Burros: transferFrom fail")
+            .to.be.revertedWith("OrdersCashV1: transferFrom fail")
     })
 
     it("works after changing the allowance and with proper maker balance", async function () {
@@ -467,7 +467,7 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
-            .to.be.revertedWith("Burros: BCH is not allowed")
+            .to.be.revertedWith("OrdersCashV1: BCH is not allowed")
     })
 
     it("fails when try to use the SEP206 (BCH) address for the taker", async function () {
@@ -482,7 +482,7 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
-            .to.be.revertedWith("Burros: BCH is not allowed")
+            .to.be.revertedWith("OrdersCashV1: BCH is not allowed")
     })
 
     it("fails when try to use the bchAddr (0xEee...) address for the maker", async function () {
@@ -497,7 +497,7 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
-            .to.be.revertedWith("Burros: BCH is not allowed")
+            .to.be.revertedWith("OrdersCashV1: BCH is not allowed")
     })
 
     it("fails when try to use the bchAddr (0xEee...) address for the taker", async function () {
@@ -512,7 +512,7 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
-            .to.be.revertedWith("Burros: BCH is not allowed")
+            .to.be.revertedWith("OrdersCashV1: BCH is not allowed")
     })
 
     it("fails when try to use the zeroAddr (0x000...0) address for the maker", async function () {
@@ -527,7 +527,7 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
-            .to.be.revertedWith("Burros: BCH is not allowed")
+            .to.be.revertedWith("OrdersCashV1: BCH is not allowed")
     })
 
     it("fails when try to use the zeroAddr (0x000...0) address for the taker", async function () {
@@ -542,7 +542,7 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
-            .to.be.revertedWith("Burros: BCH is not allowed")
+            .to.be.revertedWith("OrdersCashV1: BCH is not allowed")
     })
     // ----------------------------------------------------------------------------------------------------------------
 
@@ -558,20 +558,29 @@ describe("Limit orders without SmartSwap tests", function () {
         await wBCH.connect(maker).approve(exchange.address, toWei("1"))
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 2, toWei("1")))
-            .to.be.revertedWith("Burros: version does not match")
+            .to.be.revertedWith("OrdersCashV1: version does not match")
     })
     // ----------------------------------------------------------------------------------------------------------------
 
+    it("fails when try to use both same tokens", async function () {
+        const dueTime = getDueTime(1);
+        const msg: IMessage = {
+            coinsToMaker: concatAddressUint96(wBCH.address, "1"),
+            coinsToTaker: concatAddressUint96(wBCH.address, "1"),
+            dueTime80: dueTime,
+        }
+
+        const [r, s, v] = signRawMsg(exchange.address, msg, maker)
+        await wBCH.connect(maker).approve(exchange.address, toWei("1"))
+
+        await expect(exch(exchange.connect(taker), msg, r, s, v, 1, toWei("1")))
+            .to.be.revertedWith("OrdersCashV1: both tokens are the same")
+    })
+    // ----------------------------------------------------------------------------------------------------------------
 
     // TODO: create several orders, cancel 1
-    it("makes an order, cancel it and fails when try to take it", async function () {
-        // await wBCH.transfer(maker.address, toWei("10"))
-        // await sUSD.transfer(taker.address, toWei("5000"))
-        // expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("10"))
-        // expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("5000"))
-        // expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
-        // expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
 
+    it("makes an order, cancel it and fails when try to take it", async function () {
         const dueTime1 = getDueTime(1);
         const dueTime2 = getDueTime(1);
 
@@ -587,51 +596,14 @@ describe("Limit orders without SmartSwap tests", function () {
         await sUSD.connect(taker).approve(exchange.address, toWei("500"))
 
         await expect(exchange.connect(maker).addNewDueTime(0))
-            .to.be.revertedWith("Burros: invalid dueTime")
+            .to.be.revertedWith("OrdersCashV1: invalid dueTime")
 
         await expect(exchange.connect(maker).addNewDueTime(dueTime1))
             .to.emit(exchange, "NewDueTime")
 
         await expect(exch(exchange.connect(taker), msg, r, s, v, 1, undefined))
-            .to.be.revertedWith("Burros: dueTime not new")
-
-        // expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("9"))
-        // expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("1"))
-        // expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("500"))
-        // expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("4500"))
-        // expect(await wBCH.balanceOf(exchange.address)).to.equal(toWei("0"))
-        // expect(await sUSD.balanceOf(exchange.address)).to.equal(toWei("0"))
+            .to.be.revertedWith("OrdersCashV1: dueTime not new")
     })
-
-
-    // it("fails when the taker allowance is not enough", async function () {
-    //     expect(await wBCH.balanceOf(maker.address)).to.equal(toWei("5"))
-    //     expect(await wBCH.balanceOf(taker.address)).to.equal(toWei("5"))
-    //     expect(await sUSD.balanceOf(maker.address)).to.equal(toWei("2500"))
-    //     expect(await sUSD.balanceOf(taker.address)).to.equal(toWei("2500"))
-    //     expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
-    //     expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
-    //     expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
-    //     expect(await sUSD.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
-
-    //     const msg: IMessage = {
-    //         coinsToMaker: concatAddressUint96(wBCH.address, "1"),
-    //         coinsToTaker: concatAddressUint96(sUSD.address, "250"),
-    //         dueTime80: getDueTime(1),
-    //     }
-
-    //     const [r, s, v] = signRawMsg(exchange.address, msg, maker)
-
-    //     await sUSD.connect(maker).approve(exchange.address, toWei("250"))
-
-    //     expect(await wBCH.allowance(maker.address, exchange.address)).to.equal(toWei("0"))
-    //     expect(await wBCH.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
-    //     expect(await sUSD.allowance(maker.address, exchange.address)).to.equal(toWei("250"))
-    //     expect(await sUSD.allowance(taker.address, exchange.address)).to.equal(toWei("0"))
-
-    //     await expect(exch(exchange.connect(taker), msg, r, s, v, 1, undefined))
-    //         .to.be.revertedWith("ERC20: insufficient allowance")
-    // })
 
     // ----------------------------------------------------------------------------------------------------------------
 
@@ -655,7 +627,6 @@ function exch(exchange: Contract, msg: IMessage, r: string, s: string, v: number
         value: bchAmount || 0,
     })
 }
-
 
 function signRawMsg(verifyingContractAddr: string, msg: IMessage, signer: Wallet): [string, string, number] {
     const digest = TypedDataUtils.encodeDigest(getTypedData(verifyingContractAddr, msg))
@@ -714,30 +685,10 @@ function hexStr32(bn : BigNumber) {
 }
 
 function getDueTime(hs: number) {
-    // const dueTime = (Date.now() + hs * 3600 * 1000) * 10 ** 12;
-    // return dueTime;
-
     const expireDate = Date.now() + hs * 3600 * 1000;
     const expireTimestamp =  Math.floor(expireDate / 1000)
     const expireNanosecondsBN = ethers.BigNumber.from(expireTimestamp).mul(1000*1000*1000)
     const expirePicosecondsBN = expireNanosecondsBN.add(Math.floor(Math.random()*1000*1000*1000)).mul(1000)
     const order = "0x" + hexStr32(expirePicosecondsBN).substr(64+2-20)
     return order;
-
-
-    // console.log("expireDate:                 ", expireDate);
-    // console.log("expireTimestamp:            ", expireTimestamp);
-    // console.log("expireNanosecondsBN:        ", expireNanosecondsBN);
-    // console.log("expirePicosecondsBN:        ", expirePicosecondsBN.toString());
-    // console.log("expirePicosecondsBN_16:     ", hexStr32(expirePicosecondsBN));
-    // console.log("expirePicosecondsBN_16_sub: ", order);
-
-
-    // const now = Date.now();
-
-    // console.log("Date.now():                 ", now);
-    // console.log("(Date.now() + 1 hr:         ", (now + 1 * 3600 * 1000));
-
-    // // const dueTime = (Date.now() + hs * 3600 * 1000) * 10 ** 12;
 }
-
