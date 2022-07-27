@@ -6,14 +6,17 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library UniversalERC20 {
-
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
     IERC20 private constant ZERO_ADDRESS = IERC20(0x0000000000000000000000000000000000000000);
     IERC20 private constant ETH_ADDRESS = IERC20(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
 
-    function universalTransfer(IERC20 token, address to, uint256 amount) internal returns(bool) {
+    function universalTransfer(
+        IERC20 token,
+        address to,
+        uint256 amount
+    ) internal returns (bool) {
         if (amount == 0) {
             return true;
         }
@@ -26,7 +29,12 @@ library UniversalERC20 {
         }
     }
 
-    function universalTransferFrom(IERC20 token, address from, address to, uint256 amount) internal {
+    function universalTransferFrom(
+        IERC20 token,
+        address from,
+        address to,
+        uint256 amount
+    ) internal {
         if (amount == 0) {
             return;
         }
@@ -59,7 +67,11 @@ library UniversalERC20 {
         }
     }
 
-    function universalApprove(IERC20 token, address to, uint256 amount) internal {
+    function universalApprove(
+        IERC20 token,
+        address to,
+        uint256 amount
+    ) internal {
         if (!isETH(token)) {
             if (amount == 0) {
                 token.safeApprove(to, 0);
@@ -76,7 +88,11 @@ library UniversalERC20 {
         }
     }
 
-    function universalApproveMaxIfItsNotEnough(IERC20 token, address to, uint256 amount) internal {
+    function universalApproveMaxIfItsNotEnough(
+        IERC20 token,
+        address to,
+        uint256 amount
+    ) internal {
         if (isETH(token)) {
             return;
         }
@@ -88,7 +104,6 @@ library UniversalERC20 {
             }
             // token.safeApprove(to, uint256(-1));
             token.safeApprove(to, uint256(0x0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
-
         }
     }
 
@@ -101,7 +116,6 @@ library UniversalERC20 {
     }
 
     function universalDecimals(IERC20 token) internal view returns (uint256) {
-
         if (isETH(token)) {
             return 18;
         }
@@ -109,31 +123,26 @@ library UniversalERC20 {
         // (bool success, bytes memory data) = address(token).staticcall.gas(10000)(
         //     abi.encodeWithSignature("decimals()")
         // );
-        (bool success, bytes memory data) = address(token).staticcall{gas: 10000}(
-            abi.encodeWithSignature("decimals()")
-        );
-
+        (bool success, bytes memory data) = address(token).staticcall{gas: 10000}(abi.encodeWithSignature("decimals()"));
 
         // makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
 
         if (!success || data.length == 0) {
-            (success, data) = address(token).staticcall{gas: 10000}(
-                abi.encodeWithSignature("DECIMALS()")
-            );
+            (success, data) = address(token).staticcall{gas: 10000}(abi.encodeWithSignature("DECIMALS()"));
         }
 
         return (success && data.length > 0) ? abi.decode(data, (uint256)) : 18;
     }
 
-    function isETH(IERC20 token) internal pure returns(bool) {
+    function isETH(IERC20 token) internal pure returns (bool) {
         return (address(token) == address(ZERO_ADDRESS) || address(token) == address(ETH_ADDRESS));
     }
 
-    function eq(IERC20 a, IERC20 b) internal pure returns(bool) {
+    function eq(IERC20 a, IERC20 b) internal pure returns (bool) {
         return a == b || (isETH(a) && isETH(b));
     }
 
-    function notExist(IERC20 token) internal pure returns(bool) {
+    function notExist(IERC20 token) internal pure returns (bool) {
         // return (address(token) == address(-1));
         return (address(token) == address(0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF));
     }

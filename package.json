@@ -1,15 +1,15 @@
 {
-  "name": "@tangoswapcash/burros",
+  "name": "@tangoswapcash/orders-cash",
   "version": "0.0.1",
   "license": "Apache",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tangoswap-cash/burros.git"
+    "url": "git+https://github.com/tangoswap-cash/orders-cash.git"
   },
   "bugs": {
-    "url": "https://github.com/tangoswap-cash/burros/issues"
+    "url": "https://github.com/tangoswap-cash/orders-cash/issues"
   },
-  "homepage": "https://github.com/tangoswap-cash/burros#readme",
+  "homepage": "https://github.com/tangoswap-cash/orders-cash#readme",
   "keywords": [
     "tangoswap",
     "smartswap",

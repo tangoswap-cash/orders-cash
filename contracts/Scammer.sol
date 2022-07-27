@@ -25,21 +25,27 @@ contract Scammer {
     // bytes32 private constant TYPE_HASH =
     //     keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 takerAddr_dueTime80)"));
 
-    bytes32 private constant TYPE_HASH =
-        keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 dueTime80)"));
+    bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 dueTime80)"));
 
     uint256 private constant MUL = 10**12; // number of picoseconds in one second
     uint256 private constant MaxClearCount = 10;
-
 
     //To prevent replay of coin-exchanging messages, we use dueTime to identify a coin-exchanging message uniquely
     mapping(address => mapping(uint256 => uint256)) public makerNextRecentDueTime; //the pointers of a linked-list
     mapping(address => uint256) public makerRDTHeadTail; //the head and tail of a linked-list
 
     //A maker and a taker exchange their coins
-    event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
+    event Exchange(
+        address indexed maker,
+        address indexed taker,
+        address coinTypeToMaker,
+        uint256 coinAmountToMaker,
+        address coinTypeToTaker,
+        uint256 coinAmountToTaker,
+        uint256 dueTime80
+    );
 
-    function isBCH(address tokenAddr) internal pure returns(bool) {
+    function isBCH(address tokenAddr) internal pure returns (bool) {
         return (tokenAddr == ZERO_ADDRESS || tokenAddr == BCH_ADDRESS || tokenAddr == SEP206Addr);
     }
 
@@ -50,9 +56,7 @@ contract Scammer {
     ) public view returns (bytes32) {
         bytes32 DOMAIN_SEPARATOR = keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, CHAINID, address(this), SALT));
         return
-            keccak256(
-                abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(TYPE_HASH, coinsToMaker, coinsToTaker, dueTime80)))
-            );
+            keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(TYPE_HASH, coinsToMaker, coinsToTaker, dueTime80))));
     }
 
     // ** La usa el Taker
@@ -190,13 +194,12 @@ contract Scammer {
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
         uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
 
-        require( ! isBCH(coinTypeToTaker), "Scammer: BCH is not allowed");
+        require(!isBCH(coinTypeToTaker), "Scammer: BCH is not allowed");
 
         emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
 
         if (coinAmountToTaker != 0) {
             (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
-
                 abi.encodeWithSignature("transferFrom(address,address,uint256)", makerAddr, takerAddr, coinAmountToTaker)
             );
             require(success, "Scammer: transferFrom failed");

@@ -8,20 +8,19 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "hardhat/console.sol";
 
 contract OrdersCashV1 is Ownable {
-    address private constant SEP206Addr = 0x0000000000000000000000000000000000002711;
-    address private constant BCH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address private constant SEP206_ADDRESS = 0x0000000000000000000000000000000000002711;
+    // address private constant BCH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address private constant ZERO_ADDRESS = 0x0000000000000000000000000000000000000000;
 
-    string  private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
+    string private constant EIP712_DOMAIN = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)";
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
     bytes32 private constant NAME_HASH = keccak256(abi.encodePacked("exchange dapp"));
     bytes32 private constant VERSION_HASH = keccak256(abi.encodePacked("v0.1.0"));
     uint256 private constant CHAINID = 10000; // smartBCH mainnet
     bytes32 private constant SALT = keccak256(abi.encodePacked("Exchange"));
-    uint8   private constant VERSION = 1;
+    uint8 private constant VERSION = 1;
 
-    bytes32 private constant TYPE_HASH =
-        keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 dueTime80)"));
+    bytes32 private constant TYPE_HASH = keccak256(abi.encodePacked("Exchange(uint256 coinsToMaker,uint256 coinsToTaker,uint256 dueTime80)"));
 
     uint256 private constant MUL = 10**12; // number of picoseconds in one second
     uint256 private constant MaxClearCount = 10;
@@ -31,12 +30,20 @@ contract OrdersCashV1 is Ownable {
     mapping(address => uint256) public makerRDTHeadTail; //the head and tail of a linked-list
 
     //A maker and a taker exchange their coins
-    event Exchange(address indexed maker, address indexed taker, address coinTypeToMaker, uint256 coinAmountToMaker, address coinTypeToTaker, uint256 coinAmountToTaker, uint256 dueTime80);
+    event Exchange(
+        address indexed maker,
+        address indexed taker,
+        address coinTypeToMaker,
+        uint256 coinAmountToMaker,
+        address coinTypeToTaker,
+        uint256 coinAmountToTaker,
+        uint256 dueTime80
+    );
     event NewDueTime(address indexed maker, uint256 newDueTime, uint256 currTime);
 
-    function isBCH(address tokenAddr) internal pure returns(bool) {
-        return (tokenAddr == ZERO_ADDRESS || tokenAddr == BCH_ADDRESS || tokenAddr == SEP206Addr);
-    }
+    // function isBCH(address tokenAddr) internal pure returns (bool) {
+    //     return (tokenAddr == ZERO_ADDRESS || tokenAddr == BCH_ADDRESS || tokenAddr == SEP206_ADDRESS);
+    // }
 
     function getEIP712Hash(
         uint256 coinsToMaker,
@@ -45,9 +52,7 @@ contract OrdersCashV1 is Ownable {
     ) public view returns (bytes32) {
         bytes32 DOMAIN_SEPARATOR = keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, CHAINID, address(this), SALT));
         return
-            keccak256(
-                abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(TYPE_HASH, coinsToMaker, coinsToTaker, dueTime80)))
-            );
+            keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(TYPE_HASH, coinsToMaker, coinsToTaker, dueTime80))));
     }
 
     function getSigner(
@@ -182,11 +187,17 @@ contract OrdersCashV1 is Ownable {
         address coinTypeToTaker = address(bytes20(uint160(coinsToTaker >> 96)));
         uint256 coinAmountToTaker = uint256(uint96(coinsToTaker));
 
-        require( ! isBCH(coinTypeToMaker), "OrdersCashV1: BCH is not allowed");
-        require( ! isBCH(coinTypeToTaker), "OrdersCashV1: BCH is not allowed");
         require(coinTypeToMaker != coinTypeToTaker, "OrdersCashV1: both tokens are the same");
 
-        emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
+        if (coinTypeToMaker == ZERO_ADDRESS) {
+            coinTypeToMaker = SEP206_ADDRESS;
+        }
+
+        if (coinTypeToTaker == ZERO_ADDRESS) {
+            coinTypeToTaker = SEP206_ADDRESS;
+        }
+
+        require(coinTypeToMaker != SEP206_ADDRESS || msg.value <= coinAmountToMaker, "OrdersCashV1: BCH sent exceeds the amount to be sent");
 
         if (coinAmountToTaker != 0) {
             (bool success, bytes memory _notUsed) = coinTypeToTaker.call(
@@ -196,8 +207,16 @@ contract OrdersCashV1 is Ownable {
         }
 
         if (coinAmountToMaker != 0) {
-            require(msg.value == 0, "OrdersCashV1: no need for BCH");
-            IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
+            if (coinTypeToMaker == SEP206_ADDRESS) {
+                require(msg.value == coinAmountToMaker, "OrdersCashV1: BCH not enough");
+                (bool success, bytes memory _notUsed) = makerAddr.call{gas: 9000, value: coinAmountToMaker}("");
+                require(success, "transfer fail");
+            } else {
+                require(msg.value == 0, "OrdersCashV1: no need for BCH");
+                IERC20(coinTypeToMaker).transferFrom(takerAddr, makerAddr, coinAmountToMaker);
+            }
         }
+
+        emit Exchange(makerAddr, takerAddr, coinTypeToMaker, coinAmountToMaker, coinTypeToTaker, coinAmountToTaker, dueTime);
     }
 }
