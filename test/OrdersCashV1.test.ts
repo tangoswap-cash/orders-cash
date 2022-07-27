@@ -685,7 +685,7 @@ function hexStr32(bn : BigNumber) {
 }
 
 function getDueTime(hs: number) {
-    const expireDate = Date.now() + hs * 3600 * 1000;
+    const expireDate = (new Date()).getTime() + hs * 3600 * 1000;
     const expireTimestamp =  Math.floor(expireDate / 1000)
     const expireNanosecondsBN = ethers.BigNumber.from(expireTimestamp).mul(1000*1000*1000)
     const expirePicosecondsBN = expireNanosecondsBN.add(Math.floor(Math.random()*1000*1000*1000)).mul(1000)

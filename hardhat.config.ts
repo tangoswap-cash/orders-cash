@@ -28,7 +28,8 @@ declare var process : {
   }
 }
 
-const privateKeys : string[] = [process.env.DEPLOYER_PRIVATE_KEY, process.env.DEV_PRIVATE_KEY, process.env.TESTER_PRIVATE_KEY]
+// const privateKeys : string[] = [process.env.DEPLOYER_PRIVATE_KEY, process.env.DEV_PRIVATE_KEY, process.env.TESTER_PRIVATE_KEY]
+const accounts = [process.env.DEPLOYER_PRIVATE_KEY, process.env.DEV_PRIVATE_KEY, process.env.TESTER_PRIVATE_KEY]
 
 const config: HardhatUserConfig = {
   abiExporter: {
@@ -115,15 +116,26 @@ const config: HardhatUserConfig = {
     //   gasPrice: 1050000000,
     // },
 
+    // smartbch: {
+    //   url: "https://smartbch.fountainhead.cash/mainnet",
+    //   // url: "https://smartbch.greyh.at",
+    //   // accounts: privateKeys,
+    //   chainId: 10000,
+    //   live: true,
+    //   saveDeployments: true,
+    //   gasMultiplier: 2,
+    // },
+
     smartbch: {
       url: "https://smartbch.fountainhead.cash/mainnet",
       // url: "https://smartbch.greyh.at",
-      // accounts: privateKeys,
+      accounts,
       chainId: 10000,
       live: true,
       saveDeployments: true,
       gasMultiplier: 2,
     },
+
     // "smartbch-amber": {
     //   url: "http://35.220.203.194:8545",
     //   // url: "https://moeing.tech:9545",
