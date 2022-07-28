@@ -18,18 +18,6 @@ module.exports = async function ({
       log: true,
       deterministicDeployment: false,
     });
-  };
+};
 
-  module.exports.tags = ["OrdersCashV1"];
-
-
-
-// const OrdersCashV1 = artifacts.require('SmartSwapView');
-
-// async function deploy(deployer) {
-//     await deployer.deploy(OrdersCashV1);
-//     console.log("OrdersCashV1.address:     ", OrdersCashV1.address);
-// }
-
-// module.exports = deploy;
-
+module.exports.tags = ["OrdersCashV1"];
